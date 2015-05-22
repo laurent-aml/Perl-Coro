@@ -130,7 +130,11 @@ static void *coro_thx;
 
 #ifdef __linux
 # include <time.h> /* for timespec */
+# ifdef __ANDROID__
+#  include <sys/syscall.h>
+# else
 # include <syscall.h> /* for SYS_* */
+# endif
 # ifdef SYS_clock_gettime
 #  define coro_clock_gettime(id, ts) syscall (SYS_clock_gettime, (id), (ts))
 #  define CORO_CLOCK_MONOTONIC         1
