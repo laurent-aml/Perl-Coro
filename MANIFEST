@@ -65,6 +65,7 @@ t/17_rouse.t
 t/18_winder.t
 t/19_handle.t
 t/20_mutual_cancel.t
+t/21_safe_cancel.t
 
 EV/Makefile.PL
 EV/EV.pm
