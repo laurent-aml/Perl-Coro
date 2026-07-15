@@ -1286,19 +1286,27 @@ coro_unwind_stacks (pTHX)
 {
   if (!IN_DESTRUCT)
     {
-      /* restore all saved variables and stuff */
+      /* unwind all extra stacks */
+      POPSTACK_TO (PL_mainstack);
+
+      /* Unwind the context stack first. dounwind() pops each context frame
+       * and leaves *that frame's* scope (CX_LEAVE_SCOPE) in order, restoring
+       * PL_comppad and CvDEPTH between frames. This must happen before any
+       * blanket LEAVE_SCOPE(0): doing LEAVE_SCOPE(0) up front would process
+       * inner-frame save-stack entries (e.g. a `local $h{k}` SAVEt_DELETE, or
+       * SAVEt_CLEARSV) while the pad is still at the innermost frame's depth,
+       * leaving an outer frame's pad slot PADSTALE -- which corrupts refcounts
+       * and asserts/segfaults inside Perl_leave_scope on modern perls (seen
+       * via ->safe_cancel of a thread blocked in a condvar). */
+      dounwind (-1);
+
+      /* restore any remaining base-level saved variables and free temporaries */
       LEAVE_SCOPE (0);
       assert (PL_tmps_floor == -1);
 
       /* free all temporaries */
       FREETMPS;
       assert (PL_tmps_ix == -1);
-
-      /* unwind all extra stacks */
-      POPSTACK_TO (PL_mainstack);
-
-      /* unwind main stack */
-      dounwind (-1);
     }
 }
 
