@@ -135,7 +135,11 @@ trampoline (int sig)
 
   asm (
        "\t.text\n"
-       #if _WIN32 || __CYGWIN__
+       #if __APPLE__
+       "\t.p2align 2\n"
+       #endif
+       /* mach-o (apple) prefixes C symbols with an underscore, just like win32 */
+       #if _WIN32 || __CYGWIN__ || __APPLE__
        "\t.globl _coro_transfer\n"
        "_coro_transfer:\n"
        #else
@@ -320,6 +324,39 @@ trampoline (int sig)
            "\taddiu   $sp,$sp,112\n"
          #endif
 
+       #elif __aarch64__
+
+         /* callee-saved: x19-x28, fp (x29), lr (x30) and the low 64 bits of */
+         /* v8-v15. 12 gp + 8 fp = 20 slots = 160 bytes, keeping sp 16-aligned. */
+         #define NUM_SAVED 20
+         "\tsub sp, sp, #160\n"
+         "\tstp x19, x20, [sp, #0]\n"
+         "\tstp x21, x22, [sp, #16]\n"
+         "\tstp x23, x24, [sp, #32]\n"
+         "\tstp x25, x26, [sp, #48]\n"
+         "\tstp x27, x28, [sp, #64]\n"
+         "\tstp x29, x30, [sp, #80]\n"
+         "\tstp d8,  d9,  [sp, #96]\n"
+         "\tstp d10, d11, [sp, #112]\n"
+         "\tstp d12, d13, [sp, #128]\n"
+         "\tstp d14, d15, [sp, #144]\n"
+         "\tmov x2, sp\n"
+         "\tstr x2, [x0]\n"       /* prev->sp = sp */
+         "\tldr x2, [x1]\n"       /* sp = next->sp */
+         "\tmov sp, x2\n"
+         "\tldp x19, x20, [sp, #0]\n"
+         "\tldp x21, x22, [sp, #16]\n"
+         "\tldp x23, x24, [sp, #32]\n"
+         "\tldp x25, x26, [sp, #48]\n"
+         "\tldp x27, x28, [sp, #64]\n"
+         "\tldp x29, x30, [sp, #80]\n"
+         "\tldp d8,  d9,  [sp, #96]\n"
+         "\tldp d10, d11, [sp, #112]\n"
+         "\tldp d12, d13, [sp, #128]\n"
+         "\tldp d14, d15, [sp, #144]\n"
+         "\tadd sp, sp, #160\n"
+         "\tret\n"
+
        #else
          #error unsupported architecture
        #endif
@@ -457,6 +494,10 @@ coro_create (coro_context *ctx, coro_func coro, void *arg, void *sptr, size_t ss
       *--ctx->sp = (char *)sptr + ssize; /* StackBase */
       *--ctx->sp = sptr;                 /* StackLimit */
     #endif
+  #elif __aarch64__
+    ctx->sp = (void **)(ssize + (char *)sptr);
+    /* the entry point lives in the saved lr (x30) slot, filled in below; */
+    /* nothing else is pushed above the saved-register block. */
   #elif CORO_ARM
     /* return address stored in lr register, don't push anything */
   #else
@@ -468,6 +509,8 @@ coro_create (coro_context *ctx, coro_func coro, void *arg, void *sptr, size_t ss
 
   #if __i386__ || __x86_64__
     /* done already */
+  #elif __aarch64__
+    ctx->sp[11] = (void *)coro_init; /* x30 / lr, restored by coro_transfer's ret */
   #elif CORO_ARM
     ctx->sp[0] = coro; /* r4 */
     ctx->sp[1] = arg;  /* r5 */

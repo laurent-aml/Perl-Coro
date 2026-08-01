@@ -34,8 +34,12 @@ if (prompt ("Skip further questions and use defaults (y/n)?", "y") =~ /[yY]/) {
 
 my $iface;
 
-# default to assembly on x86 and x86_64 sometimes
-my $iface_asm = $Config{archname} =~ /^(i[3456]86|amd64|x86_64)-/ ? "a" : undef;
+# default to assembly on x86, x86_64 and aarch64/arm64 sometimes.
+# note: on darwin $Config{archname} carries no arch token, so the machine
+# is only visible via myarchname (e.g. "arm64-darwin").
+my $iface_asm = $Config{archname}   =~ /^(i[3456]86|amd64|x86_64)-/ ? "a"
+              : $Config{myarchname} =~ /(aarch64|arm64)/            ? "a"
+              : undef;
 
 # detect whether this perl is threaded, for those broken operating
 # systems that need it.
@@ -122,10 +126,13 @@ EOF
    $iface = $iface_asm || "s";
 
 } elsif ($^O =~ /darwin/) {
-   # assembler doesn't support .type
    # ucontext is of course totally broken (it just crashes)
-   # surprisingly, pthreads seem to work
-   $iface = "s";
+   # setjmp/longjmp works, but its signal-based coro creation breaks
+   # multithreaded consumers such as Coro::Multicore, so prefer the
+   # handcoded assembler backend where we have one (arm64; x86/x86_64
+   # keep setjmp/longjmp as before).
+   # surprisingly, pthreads seem to work as a last resort.
+   $iface = $iface_asm || "s";
 
 } elsif ($^O =~ /dragonfly/) {
    # ucontext is totally broken on dragonfly bsd:
