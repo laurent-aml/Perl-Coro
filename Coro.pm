@@ -374,7 +374,7 @@ our @EXPORT = qw(async async_pool cede schedule terminate current unblock_sub ro
 our %EXPORT_TAGS = (
       prio => [qw(PRIO_MAX PRIO_HIGH PRIO_NORMAL PRIO_LOW PRIO_IDLE PRIO_MIN)],
 );
-our @EXPORT_OK = (@{$EXPORT_TAGS{prio}}, qw(nready));
+our @EXPORT_OK = (@{$EXPORT_TAGS{prio}}, qw(nready cede_pending cede_slice preempt));
 
 =head1 GLOBAL VARIABLES
 
@@ -581,6 +581,89 @@ This function is often called C<yield> in other languages.
 Works like cede, but is not exported by default and will cede to I<any>
 coro, regardless of priority. This is useful sometimes to ensure
 progress is made.
+
+=item Coro::cede_pending
+
+Works like C<cede>, but only actually cedes if a preemption has been
+I<requested> since the last time it did so - otherwise it returns
+(almost) immediately. This makes it cheap enough to sprinkle into the
+inner loops of a long-running, cpu-bound coro to keep the process
+responsive, without paying for a full reschedule (or even a clock read)
+on every iteration.
+
+A preemption is requested by calling L<C<Coro::preempt>|/Coro::preempt>
+(which is signal-safe, so it can be called from a C<%SIG> handler
+installed for an interval timer of your choosing), or from C code via the
+C<CORO_PREEMPT> API macro. The model is "asynchronous request,
+synchronous honour": some outside source merely raises a flag, and the
+coro acts on it at the next safe location of I<its> choosing.
+
+This is the cheapest poll (a flag test, no clock read), but it only does
+anything if something raises the flag. If you want a self-contained time
+slice that needs no timer or signal, use
+L<C<Coro::cede_slice>|/Coro::cede_slice> instead.
+
+Like C<cede>, a pending C<< Coro->throw >> is delivered here.
+
+=item Coro::preempt
+
+Request that the currently-running coro cede at its next
+C<Coro::cede_pending>. This merely sets a flag and returns; it never
+switches coros itself.
+
+C<preempt> is only useful when called I<asynchronously>, from outside the
+running coro's own flow of control: from a C<%SIG> handler (it is
+signal-safe and takes no arguments precisely so it can be), or from C
+code via the C<CORO_PREEMPT> API macro. That is also the only case
+preemption can actually help with. A cpu-bound coro that never yields is
+exactly the one you would want to preempt, but it is also the one no
+I<other> coro can reach - nothing else runs until it yields - so only an
+asynchronous signal can ask it to stop. Consequently:
+
+=over 4
+
+=item *
+
+calling C<preempt> from within a coro's own code is pointless - if you
+are ready to yield, just call L<C<cede>|/cede>;
+
+=item *
+
+there is deliberately no way to aim C<preempt> at a particular coro: a
+greedy coro would have to yield to let another one run and target it,
+which defeats the purpose, and any coro you I<could> target is by
+definition not the one hogging the cpu.
+
+=back
+
+The matching poll is L<C<Coro::cede_pending>|/Coro::cede_pending>. If you
+want time-slicing without wiring up a timer and signal handler at all,
+see L<C<Coro::cede_slice>|/Coro::cede_slice> instead.
+
+=item Coro::cede_slice
+
+Works like C<cede>, but only actually cedes if the current coro has been
+running I<continuously> - without being scheduled away for any reason -
+for at least its per-coro time budget (its "slice"). If the coro yielded
+naturally in the meantime (blocked on I/O, a semaphore, an explicit
+C<cede> etc.) the budget is restarted, so this only ever forces a yield
+when a coro would otherwise monopolise the process.
+
+The budget is a per-coro attribute defaulting to 2ms, so it need not be
+passed on every call - see C<< $coro->cede_interval >>. It gives each
+coro a cooperative time budget, measured in wall-clock time. Unlike
+L<C<Coro::cede_pending>|/Coro::cede_pending> it reads the clock on each
+call, but it adds I<no> cost to Coro's transfer fast path and needs no
+external timer or event loop (which, for a cpu-bound coro that never
+returns to the loop, would never fire anyway).
+
+This is the self-contained way to keep a cpu-bound coro from monopolising
+the process. If you already have an interval timer and want the leanest
+possible poll, the
+L<C<Coro::cede_pending>|/Coro::cede_pending> +
+L<C<Coro::preempt>|/Coro::preempt> pair is the flag-based alternative.
+
+Like C<cede>, a pending C<< Coro->throw >> is delivered here.
 
 =item terminate [arg...]
 
@@ -954,6 +1037,13 @@ bug that will be fixed in some future version.
 
 Similar to C<prio>, but subtract the given value from the priority (i.e.
 higher values mean lower priority, just as in UNIX's nice command).
+
+=item $oldinterval = $coro->cede_interval ($newinterval)
+
+Sets (or gets in case the argument is missing) the time budget, in
+(fractional) seconds, used by C<Coro::cede_slice> for this coro. A value
+of zero (or less) selects the default of C<0.002> (2 milliseconds). The
+(effective) previous value is returned.
 
 =item $olddesc = $coro->desc ($newdesc)
 

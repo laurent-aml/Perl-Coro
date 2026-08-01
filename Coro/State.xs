@@ -176,6 +176,15 @@ static JMPENV *main_top_env;
 static HV *coro_state_stash, *coro_stash;
 static volatile SV *coro_mortal; /* will be freed/thrown after next transfer */
 
+/* a request for the currently-running coro to cede at its next               */
+/* Coro::cede_pending safepoint. volatile sig_atomic_t so it may safely be     */
+/* set from a (real) signal handler; it is also set by Coro::preempt and the  */
+/* CORO_PREEMPT C api. cleared by whoever honours it.                         */
+static volatile sig_atomic_t coro_preempt_pending;
+
+/* default per-coro time budget for Coro::cede_slice, 2ms */
+#define CORO_DEFAULT_CEDE_INTERVAL 0.002
+
 static AV *av_destroy; /* destruction queue */
 static SV *sv_manager; /* the manager coro */
 static SV *sv_idle; /* $Coro::idle */
@@ -307,6 +316,15 @@ struct coro
 
   /* times */
   coro_ts t_cpu, t_real;
+
+  /* time-budgeted cede (Coro::cede_slice). cede_interval is the                */
+  /* per-coro budget (0 => CORO_DEFAULT_CEDE_INTERVAL). cede_at is the next     */
+  /* wall-clock deadline; cede_usecount snapshots usecount so cede_slice can    */
+  /* detect a reschedule and measure the budget from the last schedule without */
+  /* adding any cost to the transfer() fast path.                              */
+  double cede_interval;
+  double cede_at;
+  int cede_usecount;
 
   /* linked list */
   struct coro *next, *prev;
@@ -2142,6 +2160,28 @@ api_cede_notself (pTHX)
     return 0;
 }
 
+/* C api: cede if a preemption has been requested. cheap enough to           */
+/* sprinkle in hot loops - a load and a predicted-not-taken branch when idle. */
+static int
+api_cede_pending (pTHX)
+{
+  if (ecb_expect_false (coro_preempt_pending))
+    {
+      coro_preempt_pending = 0;
+      return api_cede (aTHX);
+    }
+
+  return 0;
+}
+
+/* request that the currently-running coro cede at its next cede_pending.      */
+/* takes no interpreter context so it is usable straight from a signal handler.*/
+static void
+coro_preempt (void)
+{
+  coro_preempt_pending = 1;
+}
+
 static void
 api_trace (pTHX_ SV *coro_sv, int flags)
 {
@@ -2716,6 +2756,60 @@ slf_init_cede (pTHX_ struct CoroSLF *frame, CV *cv, SV **arg, int items)
 {
   frame->prepare = prepare_cede;
   frame->check   = slf_check_nop;
+}
+
+/* perl-facing: like cede, but only actually cedes if a preemption            */
+/* has been requested (see coro_preempt_pending). going through the slf frame */
+/* means a pending Coro->throw is honoured here exactly as it is for cede.     */
+static void
+slf_init_cede_pending (pTHX_ struct CoroSLF *frame, CV *cv, SV **arg, int items)
+{
+  if (coro_preempt_pending)
+    {
+      coro_preempt_pending = 0;
+      frame->prepare = prepare_cede;
+    }
+  else
+    frame->prepare = prepare_nop;
+
+  frame->check = slf_check_nop;
+}
+
+/* perl-facing: cede only if the coro's time budget has elapsed                */
+/* since it was last scheduled. the budget is a per-coro attribute (default    */
+/* CORO_DEFAULT_CEDE_INTERVAL), so hot loops call this without arguments.      */
+/* the only cost when not ceding is one nvtime () - no clock read is added to  */
+/* the transfer fast path: a reschedule is detected via the usecount counter   */
+/* that transfer() already maintains.                                          */
+static void
+slf_init_cede_slice (pTHX_ struct CoroSLF *frame, CV *cv, SV **arg, int items)
+{
+  struct coro *c = SvSTATE_current;
+  double now      = nvtime ();
+  double interval = c->cede_interval > 0. ? c->cede_interval : CORO_DEFAULT_CEDE_INTERVAL;
+
+  if (c->cede_usecount != c->usecount || c->cede_at == 0.)
+    {
+      /* first ever call (cede_at still 0 - nvtime is never 0), or (re)scheduled
+       * since we last looked (a forced or natural yield, detected via the
+       * monotonically-increasing usecount): (re)arm the budget from here and do
+       * not cede. */
+      c->cede_usecount = c->usecount;
+      c->cede_at       = now + interval;
+      frame->prepare   = prepare_nop;
+    }
+  else if (now >= c->cede_at)
+    {
+      /* ran continuously past the deadline: cede. re-arm now so that, if nothing
+       * else is ready and the cede is a nop, we don't spin; a real cede bumps
+       * usecount and re-arms again from the resume point on return. */
+      c->cede_at     = now + interval;
+      frame->prepare = prepare_cede;
+    }
+  else
+    frame->prepare = prepare_nop;
+
+  frame->check = slf_check_nop;
 }
 
 static void
@@ -4113,6 +4207,8 @@ BOOT:
           coroapi.schedule_to  = api_schedule_to;
           coroapi.cede         = api_cede;
           coroapi.cede_notself = api_cede_notself;
+          coroapi.cede_pending = api_cede_pending;
+          coroapi.preempt      = coro_preempt;
           coroapi.ready        = api_ready;
           coroapi.is_ready     = api_is_ready;
           coroapi.nready       = coro_nready;
@@ -4193,6 +4289,22 @@ cede_notself (...)
         CORO_EXECUTE_SLF_XS (slf_init_cede_notself);
 
 void
+cede_pending (...)
+	CODE:
+        CORO_EXECUTE_SLF_XS (slf_init_cede_pending);
+
+void
+cede_slice (...)
+	CODE:
+        CORO_EXECUTE_SLF_XS (slf_init_cede_slice);
+
+void
+preempt ()
+	PROTOTYPE:
+	CODE:
+        coro_preempt ();
+
+void
 _set_current (SV *current)
         PROTOTYPE: $
 	CODE:
@@ -4235,6 +4347,19 @@ prio (Coro::State coro, int newprio = 0)
 
             coro->prio = newprio;
           }
+}
+	OUTPUT:
+        RETVAL
+
+NV
+cede_interval (Coro::State coro, NV new_interval = 0)
+	PROTOTYPE: $;$
+	CODE:
+{
+        RETVAL = coro->cede_interval > 0. ? coro->cede_interval : CORO_DEFAULT_CEDE_INTERVAL;
+
+        if (items > 1)
+          coro->cede_interval = new_interval; /* <= 0 restores the default */
 }
 	OUTPUT:
         RETVAL

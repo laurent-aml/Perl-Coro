@@ -57,7 +57,7 @@ struct CoroAPI
   I32 ver;
   I32 rev;
 #define CORO_API_VERSION 7 /* reorder CoroSLF on change */
-#define CORO_API_REVISION 2
+#define CORO_API_REVISION 3 /* bump when appending to the end of struct CoroAPI */
 
   /* Coro */
   int nready;
@@ -90,6 +90,10 @@ struct CoroAPI
   void (*enterleave_hook)(pTHX_ SV *coro_sv, coro_enterleave_hook enter, void *enter_arg, coro_enterleave_hook leave, void *leave_arg);
   void (*enterleave_unhook)(pTHX_ SV *coro_sv, coro_enterleave_hook enter, coro_enterleave_hook leave);
   void (*enterleave_scope_hook)(pTHX_ coro_enterleave_hook enter, void *enter_arg, coro_enterleave_hook leave, void *leave_arg); /* XS caller must LEAVE/ENTER */
+
+  /* revision 3: cooperative preemption */
+  int  (*cede_pending) (pTHX);  /* cede iff a preemption was requested */
+  void (*preempt) (void);       /* request such a preemption (signal-handler safe) */
 };
 
 static struct CoroAPI *GCoroAPI;
@@ -104,6 +108,8 @@ static struct CoroAPI *GCoroAPI;
 #define CORO_SCHEDULE            GCoroAPI->schedule (aTHX)
 #define CORO_CEDE                GCoroAPI->cede (aTHX)
 #define CORO_CEDE_NOTSELF        GCoroAPI->cede_notself (aTHX)
+#define CORO_CEDE_PENDING        GCoroAPI->cede_pending (aTHX)
+#define CORO_PREEMPT             GCoroAPI->preempt ()
 #define CORO_READY(coro)         GCoroAPI->ready (aTHX_ coro)
 #define CORO_IS_READY(coro)      GCoroAPI->is_ready (coro)
 #define CORO_NREADY              (GCoroAPI->nready)
