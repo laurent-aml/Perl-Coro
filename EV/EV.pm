@@ -76,6 +76,14 @@ $IDLE->{desc} = "[EV idle thread]";
 
 $Coro::idle = $IDLE;
 
+# Let Coro::Multicore (if used) wake its reacquire pipe directly on the EV
+# loop, without pulling in AnyEvent. Coro::Multicore calls this on its first
+# thread and keeps the returned watcher alive.
+$Coro::Multicore::WATCH_FD = sub {
+   my ($fd, $poll) = @_;
+   EV::io $fd, EV::READ, $poll;
+};
+
 =item $revents = Coro::EV::timed_io_once $fileno_or_fh, $events[, $timeout]
 
 Blocks the coroutine until either the given event set has occurred on the
