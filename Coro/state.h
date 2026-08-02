@@ -3,97 +3,25 @@
   #define VAR(name,type) VARx(name, PL_ ## name, type)
 #endif
 
-/* list the interpreter variables that need to be saved/restored */
+/* Coro's POLICY set of per-thread dynamic globals: $_, @_, $@, $/, select,
+ * %^H and the %SIG hooks.  Which of these are per-green-thread is Coro's design
+ * choice, NOT an interpreter fact, so they are Coro's and do NOT move to core.
+ *
+ * The GENERIC execution registers (the value/mark/scope/save/tmps stacks, the
+ * execution position, the compile cursors and the flags) live entirely in
+ * execstate.h now, as a PerlExecState that save_perl/load_perl swap via
+ * execstate_save/execstate_load - so this file lists only the policy set.
+ */
 
-VARx(defsv, GvSV (PL_defgv), SV *)
-VARx(defav, GvAV (PL_defgv), AV *)
-VARx(errsv, GvSV (PL_errgv), SV *)
-VARx(irsgv, GvSV (irsgv), SV *)
-VARx(hinthv, GvHV (PL_hintgv), HV *)
-
-/* mostly copied from thrdvar.h */
-
-VAR(stack_sp,      SV **)          /* the main stack */
-#ifdef OP_IN_REGISTER
-VAR(opsave,        OP *)           /* probably not necessary */
-#else
-VAR(op,            OP *)           /* currently executing op */
-#endif
-VAR(curpad,        SV **)          /* active pad (lexicals+tmps) */
-
-VAR(stack_base,    SV **)
-VAR(stack_max,     SV **)
-
-VAR(scopestack,    I32 *)          /* scopes we've ENTERed */
-VAR(scopestack_ix, I32)
-VAR(scopestack_max,I32)
-#if HAS_SCOPESTACK_NAME
-VAR(scopestack_name,const char **)
-#endif
-
-VAR(savestack,     ANY *)          /* items that need to be restored
-                                      when LEAVEing scopes we've ENTERed */
-VAR(savestack_ix,  I32)
-VAR(savestack_max, I32)
-
-VAR(tmps_stack,    SV **)          /* mortals we've made */
-VAR(tmps_ix,       SSize_t)
-VAR(tmps_floor,    SSize_t)
-VAR(tmps_max,      SSize_t)
-
-VAR(markstack,     I32 *)          /* stack_sp locations we're remembering */
-VAR(markstack_ptr, I32 *)
-VAR(markstack_max, I32 *)
-
-#if !PERL_VERSION_ATLEAST (5,9,0)
-VAR(retstack,      OP **)          /* OPs we have postponed executing */
-VAR(retstack_ix,   I32)
-VAR(retstack_max,  I32)
-#endif
-
-VAR(curpm,         PMOP *)         /* what to do \ interps in REs from */
-VAR(rs,            SV *)           /* input record separator $/ */
-VAR(defoutgv,      GV *)           /* default FH for output */
-VAR(curcop,        COP *)
-
-VAR(curstack,      AV *)           /* THE STACK */
-VAR(curstackinfo,  PERL_SI *)      /* current stack + context */
-
-VAR(sortcop,       OP *)           /* user defined sort routine */
-VAR(sortstash,     HV *)           /* which is in some package or other */
-#if !PERL_VERSION_ATLEAST (5,9,0)
-VAR(sortcxix,      I32)            /* from pp_ctl.c */
-#endif
-
-#if PERL_VERSION_ATLEAST (5,9,0)
-VAR(localizing,    U8)             /* are we processing a local() list? */
-VAR(in_eval,       U8)             /* trap "fatal" errors? */
-#else
-VAR(localizing,    U32)            /* are we processing a local() list? */
-VAR(in_eval,       U32)            /* trap "fatal" errors? */
-#endif
-VAR(tainted,       bool)           /* using variables controlled by $< */
-
-VAR(diehook,       SV *)
-VAR(warnhook,      SV *)
-
-/* compcv is intrpvar, but seems to be thread-specific to me */
-/* but, well, I thoroughly misunderstand what thrdvar and intrpvar is. still. */
-VAR(compcv,        CV *)           /* currently compiling subroutine */
-
-VAR(comppad,       AV *)           /* storage for lexically scoped temporaries */
-VAR(comppad_name,  PADNAMELIST *)        /* variable names for "my" variables */
-VAR(comppad_name_fill,     PADOFFSET)    /* last "introduced" variable offset */
-VAR(comppad_name_floor,    PADOFFSET)    /* start of vars in innermost block */
-
-VAR(runops,        runops_proc_t)  /* for tracing support */
-
-VAR(hints,         U32)            /* pragma-tic compile-time flags */
-
-#if PERL_VERSION_ATLEAST (5,10,0)
-VAR(parser,        yy_parser *)
-#endif
+VARx(defsv,    GvSV (PL_defgv),  SV *)
+VARx(defav,    GvAV (PL_defgv),  AV *)
+VARx(errsv,    GvSV (PL_errgv),  SV *)
+VARx(irsgv,    GvSV (irsgv),     SV *)
+VARx(hinthv,   GvHV (PL_hintgv), HV *)
+VAR(rs,        SV *)               /* input record separator $/ */
+VAR(defoutgv,  GV *)               /* default FH for output ($SELECT) */
+VAR(diehook,   SV *)               /* $SIG{__DIE__}  */
+VAR(warnhook,  SV *)               /* $SIG{__WARN__} */
 
 #undef VAR
 #undef VARx
-

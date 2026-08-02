@@ -263,12 +263,34 @@ enum
   CF_NOCANCEL  = 0x0020, /* cannot cancel, set slf_frame.data to 1 (hackish) */
 };
 
+/* The execution-state separation artifact (Porting/execstate_api.md): the single
+ * X-macro list of the generic execution registers + the trivial save/load copy.
+ * state.h below consumes this SAME list (via a VARx bridge) for perl_slots, so
+ * the register set is written exactly once.  The heavier setup/teardown remain
+ * Coro's own coro_init_stacks / coro_unwind_stacks (the code destined for core),
+ * not duplicated here.
+ *
+ * This is where the core-vs-copy switch is made, in the open: a perl that ships
+ * the API defines PERL_EXECSTATE (its perl.h pulls in core's execstate.h), so we
+ * use that; otherwise we pull in Coro's bundled backport copy - execstate.h for
+ * the register list + PerlExecState, execstate.c for the save/load bodies. */
+#ifndef PERL_EXECSTATE
+# include "execstate.h"
+#endif
+
 /* the structure where most of the perl state is stored, overlaid on the cxstack */
 typedef struct
 {
+  PerlExecState exec;   /* the generic execution registers (execstate.h) */
   #define VARx(name,expr,type) type name;
-  #include "state.h"
+  #include "state.h"    /* Coro's policy per-thread globals */
 } perl_slots;
+
+/* ...and the matching backport bodies, again only when core lacks the API.
+ * #included like libcoro/coro.c and clone.c, so it is compiled once. */
+#ifndef PERL_EXECSTATE
+# include "execstate.c"
+#endif
 
 /* how many context stack entries do we need for perl_slots */
 #define SLOT_COUNT ((sizeof (perl_slots) + sizeof (PERL_CONTEXT) - 1) / sizeof (PERL_CONTEXT))
@@ -824,6 +846,10 @@ load_perl (pTHX_ Coro__State c)
 
   PL_mainstack = c->mainstack;
 
+  /* generic execution registers, via the (to-be-core) execution-state API */
+  execstate_load (&slot->exec);
+
+  /* Coro's policy per-thread globals */
 #if CORO_JIT
   load_perl_slots (slot);
 #else
@@ -972,6 +998,10 @@ save_perl (pTHX_ Coro__State c)
   {
     perl_slots *slot = c->slot = (perl_slots *)(cxstack + cxstack_ix + 1);
 
+    /* generic execution registers, via the (to-be-core) execution-state API */
+    execstate_save (&slot->exec);
+
+    /* Coro's policy per-thread globals */
 #if CORO_JIT
     save_perl_slots (slot);
 #else
@@ -1096,7 +1126,7 @@ coro_rss (pTHX_ struct coro *coro)
         }
       else
         {
-          #define SYM(sym) coro->slot->sym
+          #define SYM(sym) coro->slot->exec.sym
           CORO_RSS;
           #undef SYM
         }
@@ -2206,7 +2236,7 @@ api_trace (pTHX_ SV *coro_sv, int flags)
       if (coro->flags & CF_RUNNING)
         PL_runops = RUNOPS_DEFAULT;
       else
-        coro->slot->runops = RUNOPS_DEFAULT;
+        coro->slot->exec.runops = RUNOPS_DEFAULT;
     }
 }
 
@@ -3759,10 +3789,39 @@ MODULE = Coro::State                PACKAGE = Coro::State	PREFIX = api_
 
 PROTOTYPES: DISABLE
 
+# Self-check for the execution-state separation artifact (execstate.h),
+# compiled into Coro's real build: snapshot the live registers with
+# execstate_save, load them straight back, and confirm the round-trip is
+# register-exact.  Validates that the separated register list + save/load copy
+# work in Coro's actual interpreter.  Returns true on success.
+IV
+_execstate_roundtrip_ok ()
+  CODE:
+{
+  PerlExecState a, b;
+
+  execstate_save (&a);
+  execstate_load (&a);
+  execstate_save (&b);
+
+  RETVAL = a.savestack_ix  == b.savestack_ix
+        && a.scopestack_ix == b.scopestack_ix
+        && a.tmps_ix       == b.tmps_ix
+        && a.stack_sp      == b.stack_sp
+        && a.curstackinfo  == b.curstackinfo
+        && a.op            == b.op;
+}
+  OUTPUT:
+  RETVAL
+
 BOOT:
 {
 #define VARx(name,expr,type) if (sizeof (type) < sizeof (expr)) croak ("FATAL: Coro thread context slot '" # name "' too small for this version of perl.");
 #include "state.h"
+        /* likewise verify the execstate.h (generic) register types are wide enough */
+#define CORO_ES_CHECK(name,lval,type) if (sizeof (type) < sizeof (lval)) croak ("FATAL: Coro execstate slot '" # name "' too small for this version of perl.");
+        PERL_EXECSTATE_SLOTS(CORO_ES_CHECK)
+#undef CORO_ES_CHECK
 #ifdef USE_ITHREADS
 # if CORO_PTHREAD
         coro_thx = PERL_GET_CONTEXT;
