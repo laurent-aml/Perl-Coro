@@ -23,6 +23,9 @@
  * compilation unit; core's versions will be ordinary (external) API functions.
  */
 
+/* ========================= level 1: register snapshot ==================== */
+#if PERL_EXECSTATE_LEVEL < 1
+
 static void
 Perl_execstate_save (pTHX_ PerlExecState *into)
 {
@@ -38,6 +41,11 @@ Perl_execstate_load (pTHX_ PerlExecState *from)
   PERL_EXECSTATE_SLOTS (CORO_ES_LOAD)
   #undef CORO_ES_LOAD
 }
+
+#endif /* level 1 */
+
+/* ======================= level 2: fresh-stack lifecycle ================== */
+#if PERL_EXECSTATE_LEVEL < 2
 
 /* ---------------------------------------------------------------------------
  * Execution-context lifecycle: allocate a fresh set of interpreter stacks for
@@ -168,3 +176,5 @@ Perl_execstate_destroy (pTHX)
   Safefree (PL_retstack);
 #endif
 }
+
+#endif /* level 2 */

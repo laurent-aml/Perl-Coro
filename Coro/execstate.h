@@ -23,11 +23,20 @@
  * the register list.  What stays purely Coro is the initial stack SIZES (tuning)
  * and PL_mainstack, which load_perl sets directly.
  *
- * This file IS the backport copy: State.xs includes it (and execstate.c) only on
- * a perl that lacks the API (#ifndef PERL_EXECSTATE); a perl that ships the API
- * is served by its own execstate.h via perl.h, and State.xs never reaches this
- * copy.  Note PERL_EXECSTATE now means the WHOLE API - register copy AND
- * lifecycle - so a core that defines it must provide both.
+ * This file IS the backport copy, organised as a capability LADDER so core can
+ * implement the execution-state API up to whatever level it wants and Coro
+ * backfills the rest:
+ *
+ *     level 1  register snapshot     (PerlExecState, execstate_save/load)
+ *     level 2  fresh-stack lifecycle (execstate_init/unwind/destroy)
+ *     (level 3 pad, level 4 transfer: declared here once their code moves out
+ *      of State.xs)
+ *
+ * Core announces how far it goes via PERL_EXECSTATE_LEVEL (the legacy boolean
+ * PERL_EXECSTATE counts as level 1).  Each section below is compiled only when
+ * core is below that level (#if PERL_EXECSTATE_LEVEL < N); State.xs includes
+ * this file only while Coro still has a level to backfill, and a perl that
+ * provides a level is served by its own execstate.h via perl.h.
  *
  * The list, types and gates match Coro/state.h exactly, so the generated
  * members are byte-identical to the hand-written ones.  When this moves to core,
@@ -42,6 +51,9 @@
 
 #ifndef CORO_EXECSTATE_H
 #define CORO_EXECSTATE_H
+
+/* ========================= level 1: register snapshot ==================== */
+#if PERL_EXECSTATE_LEVEL < 1
 
 /* --- build/version-gated slots, factored out so they can appear inside the
  *     X-macro (a #define body cannot contain #if) --- */
@@ -140,6 +152,11 @@ typedef struct PerlExecState PerlExecState;
 #define execstate_save(into) Perl_execstate_save (aTHX_ into)
 #define execstate_load(from) Perl_execstate_load (aTHX_ from)
 
+#endif /* level 1 */
+
+/* ======================= level 2: fresh-stack lifecycle ================== */
+#if PERL_EXECSTATE_LEVEL < 2
+
 /* Execution-context lifecycle (bodies also in execstate.c).  execstate_init
  * reserves cxextra extra context-stack slots for the caller's per-thread
  * overlay; the initial stack sizes are the caller's tuning policy.  Under
@@ -151,5 +168,7 @@ typedef struct PerlExecState PerlExecState;
 #endif
 #define execstate_unwind()  Perl_execstate_unwind  (aTHX)
 #define execstate_destroy() Perl_execstate_destroy (aTHX)
+
+#endif /* level 2 */
 
 #endif /* CORO_EXECSTATE_H */

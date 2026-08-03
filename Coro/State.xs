@@ -272,12 +272,22 @@ enum
  * perl 24+ contract - see the ae354a2 fix), so they moved into the backport
  * alongside the register copy; only the initial stack sizes stay Coro policy.
  *
- * This is where the core-vs-copy switch is made, in the open: a perl that ships
- * the API defines PERL_EXECSTATE (its perl.h pulls in core's execstate.h), so we
- * use that; otherwise we pull in Coro's bundled backport copy - execstate.h for
- * the register list + PerlExecState + lifecycle macros, execstate.c for the
- * bodies.  PERL_EXECSTATE now covers the WHOLE API (register copy + lifecycle). */
-#ifndef PERL_EXECSTATE
+ * The API is a capability LADDER (see execstate.h): core implements it up to
+ * PERL_EXECSTATE_LEVEL and Coro backfills the levels below that.  Level 1 is the
+ * register snapshot, level 2 the fresh-stack lifecycle; pad (3) and transfer (4)
+ * are still in State.xs and will be declared when they move.  This is where the
+ * core-vs-copy switch is made, in the open: we pull in Coro's backport only while
+ * it still has a level to supply, and each section inside self-selects by level.
+ * The legacy boolean PERL_EXECSTATE counts as level 1. */
+#ifndef PERL_EXECSTATE_LEVEL
+# ifdef PERL_EXECSTATE
+#  define PERL_EXECSTATE_LEVEL 1
+# else
+#  define PERL_EXECSTATE_LEVEL 0
+# endif
+#endif
+
+#if PERL_EXECSTATE_LEVEL < 2   /* Coro backfills up to level 2; raise as levels move here */
 # include "execstate.h"
 #endif
 
@@ -289,9 +299,9 @@ typedef struct
   #include "state.h"    /* Coro's policy per-thread globals */
 } perl_slots;
 
-/* ...and the matching backport bodies, again only when core lacks the API.
+/* ...and the matching backport bodies for the levels Coro supplies.
  * #included like libcoro/coro.c and clone.c, so it is compiled once. */
-#ifndef PERL_EXECSTATE
+#if PERL_EXECSTATE_LEVEL < 2
 # include "execstate.c"
 #endif
 
