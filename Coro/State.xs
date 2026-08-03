@@ -264,16 +264,19 @@ enum
 };
 
 /* The execution-state separation artifact (Porting/execstate_api.md): the single
- * X-macro list of the generic execution registers + the trivial save/load copy.
- * state.h below consumes this SAME list (via a VARx bridge) for perl_slots, so
- * the register set is written exactly once.  The heavier setup/teardown remain
- * Coro's own coro_init_stacks / coro_unwind_stacks (the code destined for core),
- * not duplicated here.
+ * X-macro list of the generic execution registers + the save/load copy, PLUS the
+ * fresh-stack lifecycle (execstate_init / _unwind / _destroy).  state.h below
+ * consumes the SAME register list (via a VARx bridge) for perl_slots, so the
+ * register set is written exactly once.  The setup/teardown used to be treated
+ * as Coro's own, but they are interpreter fact too (the teardown order is a
+ * perl 24+ contract - see the ae354a2 fix), so they moved into the backport
+ * alongside the register copy; only the initial stack sizes stay Coro policy.
  *
  * This is where the core-vs-copy switch is made, in the open: a perl that ships
  * the API defines PERL_EXECSTATE (its perl.h pulls in core's execstate.h), so we
  * use that; otherwise we pull in Coro's bundled backport copy - execstate.h for
- * the register list + PerlExecState, execstate.c for the save/load bodies. */
+ * the register list + PerlExecState + lifecycle macros, execstate.c for the
+ * bodies.  PERL_EXECSTATE now covers the WHOLE API (register copy + lifecycle). */
 #ifndef PERL_EXECSTATE
 # include "execstate.h"
 #endif
@@ -1011,96 +1014,11 @@ save_perl (pTHX_ Coro__State c)
   }
 }
 
-/*
- * allocate various perl stacks. This is almost an exact copy
- * of perl.c:init_stacks, except that it uses less memory
- * on the (sometimes correct) assumption that coroutines do
- * not usually need a lot of stackspace.
- */
-#if CORO_PREFER_PERL_FUNCTIONS
-# define coro_init_stacks(thx) init_stacks ()
-#else
-static void
-coro_init_stacks (pTHX)
-{
-    PL_curstackinfo = new_stackinfo(32, 4 + SLOT_COUNT); /* 3 is minimum due to perl rounding down in scope.c:GROW() */
-    PL_curstackinfo->si_type = PERLSI_MAIN;
-    PL_curstack = PL_curstackinfo->si_stack;
-    PL_mainstack = PL_curstack;		/* remember in case we switch stacks */
-
-    PL_stack_base = AvARRAY(PL_curstack);
-    PL_stack_sp = PL_stack_base;
-    PL_stack_max = PL_stack_base + AvMAX(PL_curstack);
-
-    New(50,PL_tmps_stack,32,SV*);
-    PL_tmps_floor = -1;
-    PL_tmps_ix = -1;
-    PL_tmps_max = 32;
-
-    New(54,PL_markstack,16,I32);
-    PL_markstack_ptr = PL_markstack;
-    PL_markstack_max = PL_markstack + 16;
-
-#ifdef SET_MARK_OFFSET
-    SET_MARK_OFFSET;
-#endif
-
-    New(54,PL_scopestack,8,I32);
-    PL_scopestack_ix = 0;
-    PL_scopestack_max = 8;
-#if HAS_SCOPESTACK_NAME
-    New(54,PL_scopestack_name,8,const char*);
-#endif
-
-    New(54,PL_savestack,24,ANY);
-    PL_savestack_ix = 0;
-    PL_savestack_max = 24;
-#if PERL_VERSION_ATLEAST (5,24,0)
-    /* perl 5.24 moves SS_MAXPUSH optimisation from */
-    /* the header macros to PL_savestack_max */
-    PL_savestack_max -= SS_MAXPUSH;
-#endif
-
-#if !PERL_VERSION_ATLEAST (5,10,0)
-    New(54,PL_retstack,4,OP*);
-    PL_retstack_ix = 0;
-    PL_retstack_max = 4;
-#endif
-}
-#endif
-
-/*
- * destroy the stacks, the callchain etc...
- */
-static void
-coro_destruct_stacks (pTHX)
-{
-  while (PL_curstackinfo->si_next)
-    PL_curstackinfo = PL_curstackinfo->si_next;
-
-  while (PL_curstackinfo)
-    {
-      PERL_SI *p = PL_curstackinfo->si_prev;
-
-      if (!IN_DESTRUCT)
-        SvREFCNT_dec (PL_curstackinfo->si_stack);
-
-      Safefree (PL_curstackinfo->si_cxstack);
-      Safefree (PL_curstackinfo);
-      PL_curstackinfo = p;
-  }
-
-  Safefree (PL_tmps_stack);
-  Safefree (PL_markstack);
-  Safefree (PL_scopestack);
-#if HAS_SCOPESTACK_NAME
-  Safefree (PL_scopestack_name);
-#endif
-  Safefree (PL_savestack);
-#if !PERL_VERSION_ATLEAST (5,10,0)
-  Safefree (PL_retstack);
-#endif
-}
+/* The execution-context lifecycle - fresh-stack setup (execstate_init), the
+ * unwinding teardown (execstate_unwind) and the stack teardown
+ * (execstate_destroy) - now lives in the execstate backport (execstate.c),
+ * next to the register copy: it is interpreter fact, not Coro policy.  See
+ * execstate.h for why. */
 
 #define CORO_RSS										\
   rss += sizeof (SYM (curstackinfo));								\
@@ -1253,7 +1171,7 @@ init_perl (pTHX_ struct coro *coro)
   /*
    * emulate part of the perl startup here.
    */
-  coro_init_stacks (aTHX);
+  execstate_init (SLOT_COUNT);
 
   PL_runops     = RUNOPS_DEFAULT;
   PL_curcop     = &PL_compiling;
@@ -1329,34 +1247,6 @@ init_perl (pTHX_ struct coro *coro)
     }
 }
 
-static void
-coro_unwind_stacks (pTHX)
-{
-  if (!IN_DESTRUCT)
-    {
-      /* unwind all extra stacks */
-      POPSTACK_TO (PL_mainstack);
-
-      /* Unwind the context stack first. dounwind() pops each context frame
-       * and leaves *that frame's* scope (CX_LEAVE_SCOPE) in order, restoring
-       * PL_comppad and CvDEPTH between frames. This must happen before any
-       * blanket LEAVE_SCOPE(0): doing LEAVE_SCOPE(0) up front would process
-       * inner-frame save-stack entries (e.g. a `local $h{k}` SAVEt_DELETE, or
-       * SAVEt_CLEARSV) while the pad is still at the innermost frame's depth,
-       * leaving an outer frame's pad slot PADSTALE -- which corrupts refcounts
-       * and asserts/segfaults inside Perl_leave_scope on modern perls (seen
-       * via ->safe_cancel of a thread blocked in a condvar). */
-      dounwind (-1);
-
-      /* restore any remaining base-level saved variables and free temporaries */
-      LEAVE_SCOPE (0);
-      assert (PL_tmps_floor == -1);
-
-      /* free all temporaries */
-      FREETMPS;
-      assert (PL_tmps_ix == -1);
-    }
-}
 
 static void
 destroy_perl (pTHX_ struct coro *coro)
@@ -1379,9 +1269,9 @@ destroy_perl (pTHX_ struct coro *coro)
     /* restore swapped sv's */
     SWAP_SVS_LEAVE (coro);
 
-    coro_unwind_stacks (aTHX);
+    execstate_unwind ();
 
-    coro_destruct_stacks (aTHX);
+    execstate_destroy ();
 
     /* now save some sv's to be free'd later */
     svf    [0] =       GvSV (PL_defgv);
@@ -2388,7 +2278,7 @@ slf_init_terminate_cancel_common (pTHX_ struct CoroSLF *frame, HV *coro_hv)
 
   /* as a minor optimisation, we could unwind all stacks here */
   /* but that puts extra pressure on pp_slf, and is not worth much */
-  /*coro_unwind_stacks (aTHX);*/
+  /*execstate_unwind ();*/
 }
 
 static void
@@ -2462,7 +2352,7 @@ static int
 slf_check_safe_cancel (pTHX_ struct CoroSLF *frame)
 {
   frame->prepare = 0;
-  coro_unwind_stacks (aTHX);
+  execstate_unwind ();
 
   slf_init_terminate_cancel_common (aTHX_ frame, (HV *)SvRV (coro_current));
 

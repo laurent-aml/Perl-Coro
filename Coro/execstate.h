@@ -14,13 +14,20 @@
  * per-green-thread is Coro's design choice, not an interpreter fact - and
  * PL_mainstack, which load_perl sets directly.  Those stay in Coro's state.h.
  *
- * It does NOT carry the fresh-stack setup or the unwinding teardown: those are
- * Coro's own coro_init_stacks / coro_unwind_stacks / coro_destruct_stacks, the
- * interim implementation and the code that will move to core alongside this
- * list.  This file IS the backport copy: State.xs includes it (and execstate.c)
- * only on a perl that lacks the API (#ifndef PERL_EXECSTATE); a perl that ships
- * the API is served by its own execstate.h via perl.h, and State.xs never
- * reaches this copy.
+ * It ALSO carries the fresh-stack setup and the unwinding teardown
+ * (execstate_init / _unwind / _destroy, bodies in execstate.c) - these were
+ * long treated as "Coro's own", but they are just as much interpreter fact:
+ * the teardown order is a perl 24+ scope/context/pad contract (see the ae354a2
+ * fix) and the setup carries SS_MAXPUSH / retstack / scopestack_name version
+ * gates.  So they belong on the core side of the line too, and live here with
+ * the register list.  What stays purely Coro is the initial stack SIZES (tuning)
+ * and PL_mainstack, which load_perl sets directly.
+ *
+ * This file IS the backport copy: State.xs includes it (and execstate.c) only on
+ * a perl that lacks the API (#ifndef PERL_EXECSTATE); a perl that ships the API
+ * is served by its own execstate.h via perl.h, and State.xs never reaches this
+ * copy.  Note PERL_EXECSTATE now means the WHOLE API - register copy AND
+ * lifecycle - so a core that defines it must provide both.
  *
  * The list, types and gates match Coro/state.h exactly, so the generated
  * members are byte-identical to the hand-written ones.  When this moves to core,
@@ -132,5 +139,17 @@ typedef struct PerlExecState PerlExecState;
  * which these macros call. */
 #define execstate_save(into) Perl_execstate_save (aTHX_ into)
 #define execstate_load(from) Perl_execstate_load (aTHX_ from)
+
+/* Execution-context lifecycle (bodies also in execstate.c).  execstate_init
+ * reserves cxextra extra context-stack slots for the caller's per-thread
+ * overlay; the initial stack sizes are the caller's tuning policy.  Under
+ * CORO_PREFER_PERL_FUNCTIONS the setup falls back to perl's own init_stacks. */
+#if CORO_PREFER_PERL_FUNCTIONS
+# define execstate_init(cxextra) init_stacks ()
+#else
+# define execstate_init(cxextra) Perl_execstate_init (aTHX_ (cxextra))
+#endif
+#define execstate_unwind()  Perl_execstate_unwind  (aTHX)
+#define execstate_destroy() Perl_execstate_destroy (aTHX)
 
 #endif /* CORO_EXECSTATE_H */
