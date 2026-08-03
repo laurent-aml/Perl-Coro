@@ -135,7 +135,7 @@ static void *coro_thx;
 # include <assert.h>
 #endif
 
-static double (*nvtime)(); /* so why doesn't it take void? */
+static double (*nvtime)(pTHX); /* so why doesn't it take void? */
 static void   (*u2time)(pTHX_ UV ret[2]);
 
 /* we hijack an hopefully unused CV flag for our purposes */
@@ -425,7 +425,7 @@ coro_u2time (pTHX_ UV ret[2])
 }
 
 ecb_inline double
-coro_nvtime (void)
+coro_nvtime (pTHX)
 {
   struct timeval tv;
   gettimeofday (&tv, 0);
@@ -454,7 +454,7 @@ time_init (pTHX)
   if (!svp)          croak ("Time::HiRes is required, but missing. Caught");
   if (!SvIOK (*svp)) croak ("Time::NVtime isn't a function pointer. Caught");
 
-  nvtime = INT2PTR (double (*)(), SvIV (*svp));
+  nvtime = INT2PTR (double (*)(pTHX), SvIV (*svp));
 
   svp = hv_fetch (PL_modglobal, "Time::U2time", 12, 0);
   u2time = INT2PTR (void (*)(pTHX_ UV ret[2]), SvIV (*svp));
@@ -2608,7 +2608,7 @@ static void
 slf_init_cede_slice (pTHX_ struct CoroSLF *frame, CV *cv, SV **arg, int items)
 {
   struct coro *c = SvSTATE_current;
-  double now      = nvtime ();
+  double now      = nvtime (aTHX);
   double interval = c->cede_interval > 0. ? c->cede_interval : CORO_DEFAULT_CEDE_INTERVAL;
 
   if (c->cede_usecount != c->usecount || c->cede_at == 0.)
@@ -2960,7 +2960,7 @@ PerlIOCede_pushed (pTHX_ PerlIO *f, const char *mode, SV *arg, PerlIO_funcs *tab
   PerlIOCede *self = PerlIOSelf (f, PerlIOCede);
 
   self->every = SvCUR (arg) ? SvNV (arg) : 0.01;
-  self->next  = nvtime () + self->every;
+  self->next  = nvtime (aTHX) + self->every;
 
   return PerlIOBuf_pushed (aTHX_ f, mode, Nullsv, tab);
 }
@@ -2977,7 +2977,7 @@ static IV
 PerlIOCede_flush (pTHX_ PerlIO *f)
 {
   PerlIOCede *self = PerlIOSelf (f, PerlIOCede);
-  double now = nvtime ();
+  double now = nvtime (aTHX);
 
   if (now >= self->next)
     {
