@@ -215,4 +215,22 @@ typedef AV PAD;
 
 #endif /* level 3 */
 
+/* ===================== level 4: JMPENV (transfer) registers ============== */
+#if PERL_EXECSTATE_LEVEL < 4
+
+/* The ONLY interpreter-state pieces of a context transfer: the exception-handler
+ * chain head (top_env) that must follow a C-stack switch, the interpreter's base
+ * JMPENV, and the run-loop restart op.  The machine switch itself - coro_transfer
+ * and the cctx C-stack machinery - is deliberately NOT here: it is a pluggable,
+ * build-time-selected mechanism (libcoro, like the asm backends), not interpreter
+ * state, and only runs on a cross-cctx switch.  So these are just registers, as
+ * in level 1: lvalue aliases the caller reads/writes/stores where it likes (Coro
+ * keeps its copies per-cctx), plus helpers for the base and the chain root. */
+#define execstate_topenv          PL_top_env       /* current JMPENV chain head (lvalue) */
+#define execstate_restartop       PL_restartop     /* run-loop restart op (lvalue)       */
+#define execstate_topenv_reset()  (PL_top_env = &PL_start_env) /* start at interpreter base */
+#define execstate_topenv_root()   Perl_execstate_topenv_root (aTHX)
+
+#endif /* level 4 */
+
 #endif /* CORO_EXECSTATE_H */

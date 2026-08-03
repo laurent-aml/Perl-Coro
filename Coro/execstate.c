@@ -277,3 +277,23 @@ Perl_execstate_free_padlist (pTHX_ PADLIST *padlist)
 }
 
 #endif /* level 3 */
+
+/* ===================== level 4: JMPENV (transfer) registers ============== */
+#if PERL_EXECSTATE_LEVEL < 4
+
+/* Walk to the root of the JMPENV chain (the process/base exception handler).
+ * The only body needed at level 4 - the je_prev chain walk is the one bit of
+ * JMPENV-internals knowledge; everything else is a plain register alias in
+ * execstate.h. */
+ecb_inline JMPENV *
+Perl_execstate_topenv_root (pTHX)
+{
+  JMPENV *te = PL_top_env;
+
+  while (te->je_prev)
+    te = te->je_prev;
+
+  return te;
+}
+
+#endif /* level 4 */

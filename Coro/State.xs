@@ -248,13 +248,14 @@ enum
  * alongside the register copy; only the initial stack sizes stay Coro policy.
  *
  * The API is a capability LADDER (see execstate.h): core implements it up to
- * PERL_EXECSTATE_LEVEL and Coro backfills the levels below that.  Levels 1
- * (register snapshot), 2 (fresh-stack lifecycle) and 3 (pad derive/free) are in
- * the backport; transfer (4) is still in State.xs and will be declared when it
- * moves.  This is where the core-vs-copy switch is made, in the open: we pull in
- * Coro's backport only while it still has a level to supply, and each section
- * inside self-selects by level.  The legacy boolean PERL_EXECSTATE counts as
- * level 1. */
+ * PERL_EXECSTATE_LEVEL and Coro backfills the levels below that.  Level 1 is the
+ * register snapshot, 2 the fresh-stack lifecycle, 3 the pad derive/free, 4 the
+ * JMPENV (top_env/restartop) registers of a transfer - the machine switch itself
+ * (coro_transfer + the cctx C-stack machinery) is NOT a level: it is a pluggable,
+ * build-time-selected mechanism, not interpreter state, and stays in State.xs.
+ * This is where the core-vs-copy switch is made, in the open: we pull in Coro's
+ * backport only while it still has a level to supply, and each section inside
+ * self-selects by level.  The legacy boolean PERL_EXECSTATE counts as level 1. */
 #ifndef PERL_EXECSTATE_LEVEL
 # ifdef PERL_EXECSTATE
 #  define PERL_EXECSTATE_LEVEL 1
@@ -263,7 +264,7 @@ enum
 # endif
 #endif
 
-#if PERL_EXECSTATE_LEVEL < 3   /* Coro backfills up to level 3; raise as levels move here */
+#if PERL_EXECSTATE_LEVEL < 4   /* Coro backfills up to level 4; raise as levels move here */
 # include "execstate.h"
 #endif
 
@@ -277,7 +278,7 @@ typedef struct
 
 /* ...and the matching backport bodies for the levels Coro supplies.
  * #included like libcoro/coro.c and clone.c, so it is compiled once. */
-#if PERL_EXECSTATE_LEVEL < 3
+#if PERL_EXECSTATE_LEVEL < 4
 # include "execstate.c"
 #endif
 
@@ -1085,7 +1086,7 @@ init_perl (pTHX_ struct coro *coro)
   PL_curpm      = 0;
   PL_curpad     = 0;
   PL_localizing = 0;
-  PL_restartop  = 0;
+  execstate_restartop = 0;
 #if PERL_VERSION_ATLEAST (5,10,0)
   PL_parser     = 0;
 #endif
@@ -1353,11 +1354,11 @@ slf_check_set_stacklevel (pTHX_ struct CoroSLF *frame)
   return frame->check (aTHX_ frame); /* execute the restored frame - there must be one */
 }
 
-/* initialises PL_top_env and injects a pseudo-slf-call to set the stacklevel */
+/* initialises the JMPENV chain head and injects a pseudo-slf-call to set the stacklevel */
 static void ecb_noinline
 cctx_prepare (pTHX)
 {
-  PL_top_env = &PL_start_env;
+  execstate_topenv_reset ();
 
   if (cctx_current->flags & CC_TRACE)
     PL_runops = runops_trace;
@@ -1417,8 +1418,8 @@ cctx_run (void *arg)
     /* cctx_run is the alternative tail of transfer() */
     transfer_tail (aTHX);
 
-    /* somebody or something will hit me for both perl_run and PL_restartop */
-    PL_restartop = PL_op;
+    /* somebody or something will hit me for both perl_run and the restart op */
+    execstate_restartop = PL_op;
     perl_run (PL_curinterp);
     /*
      * Unfortunately, there is no way to get at the return values of the
@@ -1576,7 +1577,7 @@ transfer (pTHX_ struct coro *prev, struct coro *next, int force_cctx)
   if (ecb_expect_false (!prev))
     {
       cctx_current->idle_sp = STACKLEVEL;
-      assert (cctx_current->idle_te = PL_top_env); /* just for the side-effect when asserts are enabled */
+      assert (cctx_current->idle_te = execstate_topenv); /* just for the side-effect when asserts are enabled */
     }
   else if (ecb_expect_true (prev != next))
     {
@@ -1613,7 +1614,7 @@ transfer (pTHX_ struct coro *prev, struct coro *next, int force_cctx)
          ))
         {
           /* I assume that stacklevel is a stronger indicator than PL_top_env changes */
-          assert (("FATAL: current top_env must equal previous top_env in Coro (please report)", PL_top_env == cctx_current->idle_te));
+          assert (("FATAL: current top_env must equal previous top_env in Coro (please report)", execstate_topenv == cctx_current->idle_te));
 
           /* if the cctx is about to be destroyed we need to make sure we won't see it in cctx_get. */
           /* without this the next cctx_get might destroy the running cctx while still in use */
@@ -1635,8 +1636,8 @@ transfer (pTHX_ struct coro *prev, struct coro *next, int force_cctx)
 
       if (ecb_expect_false (cctx_prev != cctx_current))
         {
-          cctx_prev->top_env = PL_top_env;
-          PL_top_env = cctx_current->top_env;
+          cctx_prev->top_env = execstate_topenv;
+          execstate_topenv = cctx_current->top_env;
           coro_transfer (&cctx_prev->cctx, &cctx_current->cctx);
         }
 
@@ -3669,10 +3670,7 @@ BOOT:
         newCONSTSUB (coro_state_stash, "CC_TRACE_ALL" , newSViv (CC_TRACE_ALL));
 
         main_mainstack = PL_mainstack;
-        main_top_env   = PL_top_env;
-
-        while (main_top_env->je_prev)
-          main_top_env = main_top_env->je_prev;
+        main_top_env   = execstate_topenv_root ();
 
         {
           SV *slf = sv_2mortal (newSViv (PTR2IV (pp_slf)));
