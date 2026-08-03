@@ -171,4 +171,48 @@ typedef struct PerlExecState PerlExecState;
 
 #endif /* level 2 */
 
+/* ============================== level 3: pads ============================ */
+#if PERL_EXECSTATE_LEVEL < 3
+
+/* Version-gated pad-access shims.  A padlist is opaque and its representation
+ * has changed repeatedly across perls (the NEWPADAPI rework, the 5.15.3 AvREAL
+ * flip, the 5.22 PadlistNAMES quirk, pre-5.8 AV-based pads), which is exactly
+ * the interpreter knowledge level 3 lifts out of Coro. */
+#ifdef PadARRAY
+# define NEWPADAPI 1
+# define newPADLIST(var)	(Newz (0, var, 1, PADLIST), Newx (PadlistARRAY (var), 2, PAD *))
+#else
+typedef AV PADNAMELIST;
+# if !PERL_VERSION_ATLEAST(5,8,0)
+typedef AV PADLIST;
+typedef AV PAD;
+# endif
+# define PadlistARRAY(pl)	((PAD **)AvARRAY (pl))
+# define PadlistMAX(pl)		AvFILLp (pl)
+# define PadlistNAMES(pl)	(*PadlistARRAY (pl))
+# define PadARRAY		AvARRAY
+# define PadMAX			AvFILLp
+# define newPADLIST(var)	((var) = newAV (), av_extend (var, 1))
+#endif
+#ifndef PadnamelistREFCNT
+# define PadnamelistREFCNT(pnl) SvREFCNT (pnl)
+#endif
+#ifndef PadnamelistREFCNT_dec
+# define PadnamelistREFCNT_dec(pnl) SvREFCNT_dec (pnl)
+#endif
+/* one off bugfix for perl 5.22 */
+#if PERL_VERSION_ATLEAST(5,22,0) && !PERL_VERSION_ATLEAST(5,24,0)
+# undef PadlistNAMES
+# define PadlistNAMES(pl) *((PADNAMELIST **)PadlistARRAY (pl))
+#endif
+
+/* Derive a fresh padlist for a re-entered sub, and free one so derived (bodies
+ * in execstate.c).  These are the deep padlist-internals primitives; Coro's own
+ * get_padlist/put_padlist cache the results - that caching is Coro policy and
+ * stays in State.xs. */
+#define execstate_derive_padlist(cv) Perl_execstate_derive_padlist (aTHX_ (cv))
+#define execstate_free_padlist(pl)   Perl_execstate_free_padlist   (aTHX_ (pl))
+
+#endif /* level 3 */
+
 #endif /* CORO_EXECSTATE_H */

@@ -178,3 +178,102 @@ Perl_execstate_destroy (pTHX)
 }
 
 #endif /* level 2 */
+
+/* ============================== level 3: pads ============================ */
+#if PERL_EXECSTATE_LEVEL < 3
+
+/* Derive a fresh padlist for a re-entered sub.  The pad-access shims and the
+ * version gates it relies on (NEWPADAPI, the 5.15.3 AvREAL flip, pre-5.10
+ * pad_push arity) are in execstate.h. */
+ecb_inline PADLIST *
+Perl_execstate_derive_padlist (pTHX_ CV *cv)
+{
+  PADLIST *padlist = CvPADLIST (cv);
+  PADLIST *newpadlist;
+  PADNAMELIST *padnames;
+  PAD *newpad;
+  PADOFFSET off = PadlistMAX (padlist) + 1;
+
+#if NEWPADAPI
+
+  /* if we had the original CvDEPTH, we might be able to steal the CvDEPTH+1 entry instead */
+  /* 20131102194744.GA6705@schmorp.de, 20131102195825.2013.qmail@lists-nntp.develooper.com */
+  while (!PadlistARRAY (padlist)[off - 1])
+    --off;
+
+  Perl_pad_push (aTHX_ padlist, off);
+
+  newpad = PadlistARRAY (padlist)[off];
+  PadlistARRAY (padlist)[off] = 0;
+
+#else
+
+#if PERL_VERSION_ATLEAST (5,10,0)
+  Perl_pad_push (aTHX_ padlist, off);
+#else
+  Perl_pad_push (aTHX_ padlist, off, 1);
+#endif
+
+  newpad = PadlistARRAY (padlist)[off];
+  PadlistMAX (padlist) = off - 1;
+
+#endif
+
+  newPADLIST (newpadlist);
+#if !PERL_VERSION_ATLEAST(5,15,3)
+  /* Padlists are AvREAL as of 5.15.3. See perl bug #98092 and perl commit 7d953ba. */
+  AvREAL_off (newpadlist);
+#endif
+
+  /* Already extended to 2 elements by newPADLIST. */
+  PadlistMAX (newpadlist) = 1;
+
+  padnames = PadlistNAMES (padlist);
+  ++PadnamelistREFCNT (padnames);
+  PadlistNAMES (newpadlist) = padnames;
+
+  PadlistARRAY (newpadlist)[1] = newpad;
+
+  return newpadlist;
+}
+
+/* Free a padlist derived by Perl_execstate_derive_padlist. */
+ecb_inline void
+Perl_execstate_free_padlist (pTHX_ PADLIST *padlist)
+{
+  /* may be during global destruction */
+  if (!IN_DESTRUCT)
+    {
+      I32 i = PadlistMAX (padlist);
+
+      while (i > 0) /* special-case index 0 */
+        {
+          /* we try to be extra-careful here */
+          PAD *pad = PadlistARRAY (padlist)[i--];
+
+          if (pad)
+            {
+              I32 j = PadMAX (pad);
+
+              while (j >= 0)
+                SvREFCNT_dec (PadARRAY (pad)[j--]);
+
+              PadMAX (pad) = -1;
+              SvREFCNT_dec (pad);
+            }
+        }
+
+      PadnamelistREFCNT_dec (PadlistNAMES (padlist));
+
+#if NEWPADAPI
+      Safefree (PadlistARRAY (padlist));
+      Safefree (padlist);
+#else
+      AvFILLp (padlist) = -1;
+      AvREAL_off (padlist);
+      SvREFCNT_dec ((SV*)padlist);
+#endif
+    }
+}
+
+#endif /* level 3 */

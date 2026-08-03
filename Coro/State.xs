@@ -56,28 +56,8 @@
 # define SVs_PADSTALE 0
 #endif
 
-#ifdef PadARRAY
-# define NEWPADAPI 1
-# define newPADLIST(var)	(Newz (0, var, 1, PADLIST), Newx (PadlistARRAY (var), 2, PAD *))
-#else
-typedef AV PADNAMELIST;
-# if !PERL_VERSION_ATLEAST(5,8,0)
-typedef AV PADLIST;
-typedef AV PAD;
-# endif
-# define PadlistARRAY(pl)	((PAD **)AvARRAY (pl))
-# define PadlistMAX(pl)		AvFILLp (pl)
-# define PadlistNAMES(pl)	(*PadlistARRAY (pl))
-# define PadARRAY		AvARRAY
-# define PadMAX			AvFILLp
-# define newPADLIST(var)	((var) = newAV (), av_extend (var, 1))
-#endif
-#ifndef PadnamelistREFCNT
-# define PadnamelistREFCNT(pnl) SvREFCNT (pnl)
-#endif
-#ifndef PadnamelistREFCNT_dec
-# define PadnamelistREFCNT_dec(pnl) SvREFCNT_dec (pnl)
-#endif
+/* the pad-access shims (NEWPADAPI, newPADLIST, the Padlist/Pad accessors,
+ * PadnamelistREFCNT) moved to execstate.h as part of the level-3 (pad) API. */
 
 /* 5.19.something has replaced SVt_BIND by SVt_INVLIST */
 /* we just alias it to SVt_IV, as that is sufficient for swap_sv for now */
@@ -142,11 +122,6 @@ static void *coro_thx;
 # endif
 #endif
 
-/* one off bugfix for perl 5.22 */
-#if PERL_VERSION_ATLEAST(5,22,0) && !PERL_VERSION_ATLEAST(5,24,0)
-# undef PadlistNAMES
-# define PadlistNAMES(pl) *((PADNAMELIST **)PadlistARRAY (pl))
-#endif
 
 #if PERL_VERSION_ATLEAST(5,24,0)
 # define SUB_ARGARRAY PL_curpad[0]
@@ -273,12 +248,13 @@ enum
  * alongside the register copy; only the initial stack sizes stay Coro policy.
  *
  * The API is a capability LADDER (see execstate.h): core implements it up to
- * PERL_EXECSTATE_LEVEL and Coro backfills the levels below that.  Level 1 is the
- * register snapshot, level 2 the fresh-stack lifecycle; pad (3) and transfer (4)
- * are still in State.xs and will be declared when they move.  This is where the
- * core-vs-copy switch is made, in the open: we pull in Coro's backport only while
- * it still has a level to supply, and each section inside self-selects by level.
- * The legacy boolean PERL_EXECSTATE counts as level 1. */
+ * PERL_EXECSTATE_LEVEL and Coro backfills the levels below that.  Levels 1
+ * (register snapshot), 2 (fresh-stack lifecycle) and 3 (pad derive/free) are in
+ * the backport; transfer (4) is still in State.xs and will be declared when it
+ * moves.  This is where the core-vs-copy switch is made, in the open: we pull in
+ * Coro's backport only while it still has a level to supply, and each section
+ * inside self-selects by level.  The legacy boolean PERL_EXECSTATE counts as
+ * level 1. */
 #ifndef PERL_EXECSTATE_LEVEL
 # ifdef PERL_EXECSTATE
 #  define PERL_EXECSTATE_LEVEL 1
@@ -287,7 +263,7 @@ enum
 # endif
 #endif
 
-#if PERL_EXECSTATE_LEVEL < 2   /* Coro backfills up to level 2; raise as levels move here */
+#if PERL_EXECSTATE_LEVEL < 3   /* Coro backfills up to level 3; raise as levels move here */
 # include "execstate.h"
 #endif
 
@@ -301,7 +277,7 @@ typedef struct
 
 /* ...and the matching backport bodies for the levels Coro supplies.
  * #included like libcoro/coro.c and clone.c, so it is compiled once. */
-#if PERL_EXECSTATE_LEVEL < 2
+#if PERL_EXECSTATE_LEVEL < 3
 # include "execstate.c"
 #endif
 
@@ -622,95 +598,11 @@ SvSTATE_ (pTHX_ SV *coro_sv)
 /*****************************************************************************/
 /* padlist management and caching */
 
-ecb_inline PADLIST *
-coro_derive_padlist (pTHX_ CV *cv)
-{
-  PADLIST *padlist = CvPADLIST (cv);
-  PADLIST *newpadlist;
-  PADNAMELIST *padnames;
-  PAD *newpad;
-  PADOFFSET off = PadlistMAX (padlist) + 1;
-
-#if NEWPADAPI
-
-  /* if we had the original CvDEPTH, we might be able to steal the CvDEPTH+1 entry instead */
-  /* 20131102194744.GA6705@schmorp.de, 20131102195825.2013.qmail@lists-nntp.develooper.com */
-  while (!PadlistARRAY (padlist)[off - 1])
-    --off;
-
-  Perl_pad_push (aTHX_ padlist, off);
-
-  newpad = PadlistARRAY (padlist)[off];
-  PadlistARRAY (padlist)[off] = 0;
-
-#else
-
-#if PERL_VERSION_ATLEAST (5,10,0)
-  Perl_pad_push (aTHX_ padlist, off);
-#else
-  Perl_pad_push (aTHX_ padlist, off, 1);
-#endif
-
-  newpad = PadlistARRAY (padlist)[off];
-  PadlistMAX (padlist) = off - 1;
-
-#endif
-
-  newPADLIST (newpadlist);
-#if !PERL_VERSION_ATLEAST(5,15,3)
-  /* Padlists are AvREAL as of 5.15.3. See perl bug #98092 and perl commit 7d953ba. */
-  AvREAL_off (newpadlist);
-#endif
-
-  /* Already extended to 2 elements by newPADLIST. */
-  PadlistMAX (newpadlist) = 1;
-
-  padnames = PadlistNAMES (padlist);
-  ++PadnamelistREFCNT (padnames);
-  PadlistNAMES (newpadlist) = padnames;
-
-  PadlistARRAY (newpadlist)[1] = newpad;
-
-  return newpadlist;
-}
-
-ecb_inline void
-free_padlist (pTHX_ PADLIST *padlist)
-{
-  /* may be during global destruction */
-  if (!IN_DESTRUCT)
-    {
-      I32 i = PadlistMAX (padlist);
-
-      while (i > 0) /* special-case index 0 */
-        {
-          /* we try to be extra-careful here */
-          PAD *pad = PadlistARRAY (padlist)[i--];
-
-          if (pad)
-            {
-              I32 j = PadMAX (pad);
-
-              while (j >= 0)
-                SvREFCNT_dec (PadARRAY (pad)[j--]);
-
-              PadMAX (pad) = -1;
-              SvREFCNT_dec (pad);
-            }
-        }
-
-      PadnamelistREFCNT_dec (PadlistNAMES (padlist));
-
-#if NEWPADAPI
-      Safefree (PadlistARRAY (padlist));
-      Safefree (padlist);
-#else
-      AvFILLp (padlist) = -1;
-      AvREAL_off (padlist);
-      SvREFCNT_dec ((SV*)padlist);
-#endif
-    }
-}
+/* The deep padlist-internals primitives - derive a fresh padlist for a
+ * re-entered sub, and free one so derived - are the level-3 (pad) API and live
+ * in the execstate backport (execstate.c) as execstate_derive_padlist /
+ * execstate_free_padlist.  The caching below (which padlists to keep and reuse,
+ * keyed by Coro magic) is Coro policy and stays here. */
 
 static int
 coro_cv_free (pTHX_ SV *sv, MAGIC *mg)
@@ -724,7 +616,7 @@ coro_cv_free (pTHX_ SV *sv, MAGIC *mg)
     return 0;
 
   while (len--)
-    free_padlist (aTHX_ padlists[len]);
+    execstate_free_padlist (padlists[len]);
 
   return 0;
 }
@@ -753,7 +645,7 @@ get_padlist (pTHX_ CV *cv)
      CvPADLIST (cp) = 0;
      SvREFCNT_dec (cp);
 #else
-     CvPADLIST (cv) = coro_derive_padlist (aTHX_ cv);
+     CvPADLIST (cv) = execstate_derive_padlist (cv);
 #endif
    }
 }
