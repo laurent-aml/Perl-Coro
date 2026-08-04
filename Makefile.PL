@@ -118,6 +118,7 @@ WriteMakefile(
 #		    'Coro/Cont.pm'	=> '$(INST_LIB)/Coro/Cont.pm',
 
 		    'Coro/Specific.pm'	=> '$(INST_LIB)/Coro/Specific.pm',
+		    'Coro/Atomic.pm'	=> '$(INST_LIB)/Coro/Atomic.pm',
 
 		    'Coro/Timer.pm'	=> '$(INST_LIB)/Coro/Timer.pm',
 		    'Coro/Signal.pm'	=> '$(INST_LIB)/Coro/Signal.pm',

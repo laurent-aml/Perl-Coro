@@ -24,6 +24,7 @@ Coro/Semaphore.pm
 Coro/SemaphoreSet.pm
 Coro/Channel.pm
 Coro/Specific.pm
+Coro/Atomic.pm
 Coro/RWLock.pm
 Coro/MakeMaker.pm
 Coro/CoroAPI.h
@@ -69,6 +70,7 @@ t/19_handle.t
 t/20_mutual_cancel.t
 t/21_safe_cancel.t
 t/22_preempt.t
+t/23_atomic.t
 
 EV/Makefile.PL
 EV/EV.pm

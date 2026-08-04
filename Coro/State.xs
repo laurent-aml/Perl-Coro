@@ -350,6 +350,11 @@ typedef struct coro *Coro__State_or_hashref;
 /* the main reason we don't support windows process emulation */
 static struct CoroSLF slf_frame; /* the current slf frame */
 
+/* Nonzero while the running coro is inside an atomic {} section.  Because a coro
+ * may not yield while it is set (transfer croaks below), only the running coro
+ * can ever see it nonzero, so a single global counter is sufficient. */
+static int coro_atomic;
+
 /** Coro ********************************************************************/
 
 #define CORO_PRIO_MAX     3
@@ -1825,11 +1830,25 @@ api_is_ready (pTHX_ SV *coro_sv)
   return !!(SvSTATE (coro_sv)->flags & CF_READY);
 }
 
+/* croak (before any scheduler state is touched) if the running coro is inside
+ * an atomic {} section and is about to actually yield.  Checked at the yield
+ * ENTRY points rather than in transfer(), because by the time transfer() runs
+ * the next coro has been dequeued and croaking there would lose it. */
+ecb_cold static void
+coro_atomic_violation (pTHX)
+{
+  croak ("Coro: attempt to switch coroutines inside an atomic {} section "
+         "(a cede, schedule or blocking call is not allowed there)");
+}
+
 /* expects to own a reference to next->hv */
 ecb_inline void
 prepare_schedule_to (pTHX_ struct coro_transfer_args *ta, struct coro *next)
 {
   SV *prev_sv = SvRV (coro_current);
+
+  if (ecb_expect_false (coro_atomic))
+    coro_atomic_violation (aTHX);
 
   ta->prev = SvSTATE_hv (prev_sv);
   ta->next = next;
@@ -1845,6 +1864,9 @@ prepare_schedule_to (pTHX_ struct coro_transfer_args *ta, struct coro *next)
 static void
 prepare_schedule (pTHX_ struct coro_transfer_args *ta)
 {
+  if (ecb_expect_false (coro_atomic))
+    coro_atomic_violation (aTHX);
+
   for (;;)
     {
       struct coro *next = coro_deq (aTHX);
@@ -1915,6 +1937,9 @@ prepare_schedule (pTHX_ struct coro_transfer_args *ta)
 ecb_inline void
 prepare_cede (pTHX_ struct coro_transfer_args *ta)
 {
+  if (ecb_expect_false (coro_atomic))
+    coro_atomic_violation (aTHX);
+
   api_ready (aTHX_ coro_current);
   prepare_schedule (aTHX_ ta);
 }
@@ -2003,6 +2028,20 @@ static void
 coro_preempt (void)
 {
   coro_preempt_pending = 1;
+}
+
+/* scope-exit hook for Coro::Atomic::scoped_atomic: pop one nesting level.      */
+/* Deliberately a savestack destructor rather than an enterleave scope hook - a  */
+/* coro cannot switch while atomic, so the per-switch hooks would never fire,    */
+/* and api_enterleave_scope_hook does not currently nest (see the note on        */
+/* scoped_enable/scoped_disable in Coro::Multicore), whereas atomic must.        */
+static void
+atomic_scope_leave (pTHX_ void *arg)
+{
+  PERL_UNUSED_ARG (arg);
+
+  if (coro_atomic > 0)
+    --coro_atomic;
 }
 
 static void
@@ -4073,6 +4112,27 @@ BOOT:
         }
 }
 
+# enter/leave an atomic {} section: while the count is nonzero the running coro
+# is forbidden from yielding (transfer croaks).  Balanced by a scope guard in
+# Coro::Atomic, so the count is restored even if the section dies.
+void
+_atomic_enter ()
+	CODE:
+        ++coro_atomic;
+
+void
+_atomic_leave ()
+	CODE:
+        if (coro_atomic > 0)
+          --coro_atomic;
+
+int
+_atomic_count ()
+	CODE:
+        RETVAL = coro_atomic;
+	OUTPUT:
+        RETVAL
+
 SV *
 async (...)
 	PROTOTYPE: &@
@@ -4323,6 +4383,26 @@ on_enter (SV *block)
         ENTER; /* pp_entersub unfortunately forces an ENTER/LEAVE around XS calls */
 }
 
+
+MODULE = Coro::State                PACKAGE = Coro::Atomic
+
+# Enter an atomic section that runs to the end of the *caller's* scope.  The call
+# site fixes the extent, and the scope boundary enforces it: the release is a
+# savestack destructor, so it fires wherever that scope unwinds - fallthrough,
+# early return or die alike - and cannot be deferred past it.
+#
+# The LEAVE/ENTER pair is what puts the destructor on the caller's scope instead
+# of this XSUB's own one (the same trick Guard.xs and Coro::Multicore's
+# scoped_disable use).  Nests correctly: each call pushes its own destructor, and
+# the savestack unwinds them innermost-first.
+void
+scoped_atomic ()
+	PROTOTYPE:
+	CODE:
+        LEAVE;
+        ++coro_atomic;
+        SAVEDESTRUCTOR_X (atomic_scope_leave, (void *)0);
+        ENTER;
 
 MODULE = Coro::State                PACKAGE = PerlIO::cede
 
