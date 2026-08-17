@@ -138,8 +138,10 @@ trampoline (int sig)
        #if __APPLE__
        "\t.p2align 2\n"
        #endif
-       /* mach-o (apple) prefixes C symbols with an underscore, just like win32 */
-       #if _WIN32 || __CYGWIN__ || __APPLE__
+       /* mach-o (apple) always prefixes C symbols with an underscore. on windows */
+       /* and cygwin only the 32-bit x86 abi does - amd64 and arm64 leave C names */
+       /* undecorated, so prefixing there defines a symbol nothing ever calls. */
+       #if __APPLE__ || ((_WIN32 || __CYGWIN__) && __i386__)
        "\t.globl _coro_transfer\n"
        "_coro_transfer:\n"
        #else
