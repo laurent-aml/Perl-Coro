@@ -49,6 +49,27 @@ The name is deliberately not Coro-specific: an C<atomic> region is one that runs
 as a single indivisible step with respect to the other tasks, the same sense the
 word carries in software-transactional-memory C<atomic> blocks.
 
+=head2 INTERACTION WITH Coro::Multicore
+
+Yielding is not the only way another coro thread can get to run.  If
+L<Coro::Multicore> is loaded, calling an XS function that supports the
+perlmulticore API normally releases the perl interpreter - handing it to another
+native thread, which then runs other coro threads - or, with the I<offload>
+backend, suspends the calling coro until a worker finishes.  Either would break
+the guarantee an atomic section makes, without any C<cede> appearing in the
+source.
+
+So an atomic section also suppresses Coro::Multicore for its duration,
+overriding C<Coro::Multicore::enable> and C<scoped_enable>/C<scoped_disable>
+alike: multicore-enabled XS functions still run and return the same results, they
+just run inline on the current thread.  Nothing is lost but parallelism, so it is
+safe to call such a function inside an atomic section - the section keeps its
+meaning and the call keeps working.
+
+This requires Coro::Multicore to be built against this version of C<CoroAPI.h>
+(API revision 4 or later, which publishes the atomic depth); an older build
+loaded against this Coro refuses to load with a version-mismatch message.
+
 The three forms are equivalent; pick whichever reads best:
 
 =over 4

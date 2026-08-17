@@ -2030,6 +2030,16 @@ coro_preempt (void)
   coro_preempt_pending = 1;
 }
 
+/* C api: atomic {} nesting depth of the running coro - nonzero means it must   */
+/* not yield, so anything that would let other coro threads run has to fall     */
+/* back to running inline. An accessor rather than the counter's address, so the */
+/* representation stays private; context-free, as callers may have no dTHX.     */
+static int
+api_atomic_count (void)
+{
+  return coro_atomic;
+}
+
 /* scope-exit hook for Coro::Atomic::scoped_atomic: pop one nesting level.      */
 /* Deliberately a savestack destructor rather than an enterleave scope hook - a  */
 /* coro cannot switch while atomic, so the per-switch hooks would never fire,    */
@@ -4097,6 +4107,7 @@ BOOT:
           coroapi.cede_notself = api_cede_notself;
           coroapi.cede_pending = api_cede_pending;
           coroapi.preempt      = coro_preempt;
+          coroapi.atomic_count = api_atomic_count;
           coroapi.ready        = api_ready;
           coroapi.is_ready     = api_is_ready;
           coroapi.nready       = coro_nready;

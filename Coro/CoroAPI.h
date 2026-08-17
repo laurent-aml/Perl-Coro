@@ -57,7 +57,7 @@ struct CoroAPI
   I32 ver;
   I32 rev;
 #define CORO_API_VERSION 7 /* reorder CoroSLF on change */
-#define CORO_API_REVISION 3 /* bump when appending to the end of struct CoroAPI */
+#define CORO_API_REVISION 4 /* bump when appending to the end of struct CoroAPI */
 
   /* Coro */
   int nready;
@@ -94,6 +94,14 @@ struct CoroAPI
   /* revision 3: cooperative preemption */
   int  (*cede_pending) (pTHX);  /* cede iff a preemption was requested */
   void (*preempt) (void);       /* request such a preemption (signal-handler safe) */
+
+  /* revision 4: atomic sections */
+  /* Returns nonzero while the running coro is inside an atomic {} section, i.e.
+   * while it is forbidden to yield.  Extensions that would let other coro threads
+   * run - notably a perlmulticore interpreter release - must check this and fall
+   * back to running inline instead.  Takes no interpreter context, so it is
+   * callable from places that have no dTHX (such as pmapi_release). */
+  int (*atomic_count) (void);
 };
 
 static struct CoroAPI *GCoroAPI;
@@ -109,6 +117,7 @@ static struct CoroAPI *GCoroAPI;
 #define CORO_CEDE                GCoroAPI->cede (aTHX)
 #define CORO_CEDE_NOTSELF        GCoroAPI->cede_notself (aTHX)
 #define CORO_CEDE_PENDING        GCoroAPI->cede_pending (aTHX)
+#define CORO_ATOMIC              GCoroAPI->atomic_count ()
 #define CORO_PREEMPT             GCoroAPI->preempt ()
 #define CORO_READY(coro)         GCoroAPI->ready (aTHX_ coro)
 #define CORO_IS_READY(coro)      GCoroAPI->is_ready (coro)
