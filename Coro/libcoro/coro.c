@@ -338,8 +338,16 @@ trampoline (int sig)
 
          /* callee-saved: x19-x28, fp (x29), lr (x30) and the low 64 bits of */
          /* v8-v15. 12 gp + 8 fp = 20 slots = 160 bytes, keeping sp 16-aligned. */
-         #define NUM_SAVED 20
-         "\tsub sp, sp, #160\n"
+         /* on windows/arm64 three more slots carry NT_TIB's stack fields (plus */
+         /* one slot of padding to keep the frame a multiple of 16); they live */
+         /* above the register block, at [sp, #160..#176]. */
+         #if CORO_WIN_TIB
+           #define NUM_SAVED 24
+           "\tsub sp, sp, #192\n"
+         #else
+           #define NUM_SAVED 20
+           "\tsub sp, sp, #160\n"
+         #endif
          "\tstp x19, x20, [sp, #0]\n"
          "\tstp x21, x22, [sp, #16]\n"
          "\tstp x23, x24, [sp, #32]\n"
@@ -350,10 +358,26 @@ trampoline (int sig)
          "\tstp d10, d11, [sp, #112]\n"
          "\tstp d12, d13, [sp, #128]\n"
          "\tstp d14, d15, [sp, #144]\n"
+         #if CORO_WIN_TIB
+           /* x18 is the reserved TEB pointer on windows/arm64; NT_TIB is */
+           /* ExceptionList 0x00 / StackBase 0x08 / StackLimit 0x10, as on amd64. */
+           "\tldr x2, [x18, #0]\n"
+           "\tldr x3, [x18, #8]\n"
+           "\tldr x4, [x18, #16]\n"
+           "\tstp x2, x3, [sp, #160]\n"
+           "\tstr x4, [sp, #176]\n"
+         #endif
          "\tmov x2, sp\n"
          "\tstr x2, [x0]\n"       /* prev->sp = sp */
          "\tldr x2, [x1]\n"       /* sp = next->sp */
          "\tmov sp, x2\n"
+         #if CORO_WIN_TIB
+           "\tldp x2, x3, [sp, #160]\n"
+           "\tldr x4, [sp, #176]\n"
+           "\tstr x2, [x18, #0]\n"
+           "\tstr x3, [x18, #8]\n"
+           "\tstr x4, [x18, #16]\n"
+         #endif
          "\tldp x19, x20, [sp, #0]\n"
          "\tldp x21, x22, [sp, #16]\n"
          "\tldp x23, x24, [sp, #32]\n"
@@ -364,7 +388,11 @@ trampoline (int sig)
          "\tldp d10, d11, [sp, #112]\n"
          "\tldp d12, d13, [sp, #128]\n"
          "\tldp d14, d15, [sp, #144]\n"
-         "\tadd sp, sp, #160\n"
+         #if CORO_WIN_TIB
+           "\tadd sp, sp, #192\n"
+         #else
+           "\tadd sp, sp, #160\n"
+         #endif
          "\tret\n"
 
        #else
@@ -554,6 +582,12 @@ coro_create (coro_context *ctx, coro_func coro, void *arg, void *sptr, size_t ss
     #endif
   #elif __aarch64__
     ctx->sp[11] = (void *)coro_init; /* x30 / lr, restored by coro_transfer's ret */
+    #if CORO_WIN_TIB
+      ctx->sp[20] = 0;                    /* NT_TIB.ExceptionList */
+      ctx->sp[21] = (char *)sptr + ssize; /* NT_TIB.StackBase     */
+      ctx->sp[22] = sptr;                 /* NT_TIB.StackLimit    */
+      /* sp[23] stays zero - alignment padding only */
+    #endif
   #elif CORO_ARM
     ctx->sp[0] = coro; /* r4 */
     ctx->sp[1] = arg;  /* r5 */
