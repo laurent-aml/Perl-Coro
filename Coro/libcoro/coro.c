@@ -172,16 +172,18 @@ trampoline (int sig)
            "\tpushq %r14\n"
            "\tpushq %r15\n"
            #if CORO_WIN_TIB
-             "\tpushq %fs:0x0\n"
-             "\tpushq %fs:0x8\n"
-             "\tpushq %fs:0xc\n"
+             /* on win64 the TEB lives at %gs (not %fs, whose base is 0 here), */
+             /* and NT_TIB is ExceptionList 0x00 / StackBase 0x08 / StackLimit 0x10. */
+             "\tpushq %gs:0x0\n"
+             "\tpushq %gs:0x8\n"
+             "\tpushq %gs:0x10\n"
            #endif
            "\tmovq %rsp, (%rcx)\n"
            "\tmovq (%rdx), %rsp\n"
            #if CORO_WIN_TIB
-             "\tpopq %fs:0xc\n"
-             "\tpopq %fs:0x8\n"
-             "\tpopq %fs:0x0\n"
+             "\tpopq %gs:0x10\n"
+             "\tpopq %gs:0x8\n"
+             "\tpopq %gs:0x0\n"
            #endif
            "\tpopq %r15\n"
            "\tpopq %r14\n"
