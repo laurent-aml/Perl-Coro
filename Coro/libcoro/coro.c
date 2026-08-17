@@ -232,8 +232,8 @@ trampoline (int sig)
          "\tpushl %esi\n"
          "\tpushl %edi\n"
          #if CORO_WIN_TIB
-           #undef NUM_SAVED
-           #define NUM_SAVED 7
+           /* NUM_SAVED counts callee-saved registers only; the TIB triple is */
+           /* laid out separately by coro_create, below the saved-reg block. */
            "\tpushl %fs:0\n"
            "\tpushl %fs:4\n"
            "\tpushl %fs:8\n"
@@ -491,11 +491,6 @@ coro_create (coro_context *ctx, coro_func coro, void *arg, void *sptr, size_t ss
     ctx->sp = (void **)(ssize + (char *)sptr);
     *--ctx->sp = (void *)abort; /* needed for alignment only */
     *--ctx->sp = (void *)coro_init;
-    #if CORO_WIN_TIB
-      *--ctx->sp = 0;                    /* ExceptionList */
-      *--ctx->sp = (char *)sptr + ssize; /* StackBase */
-      *--ctx->sp = sptr;                 /* StackLimit */
-    #endif
   #elif __aarch64__
     ctx->sp = (void **)(ssize + (char *)sptr);
     /* the entry point lives in the saved lr (x30) slot, filled in below; */
@@ -510,7 +505,17 @@ coro_create (coro_context *ctx, coro_func coro, void *arg, void *sptr, size_t ss
   memset (ctx->sp, 0, sizeof (*ctx->sp) * NUM_SAVED);
 
   #if __i386__ || __x86_64__
-    /* done already */
+    #if CORO_WIN_TIB
+      /* coro_transfer pops the TIB triple *first* on resume, so it must sit at
+       * the lowest addresses - i.e. below the saved-register block reserved
+       * above. Pushing it before the reservation (as this code used to) left it
+       * stranded above the block: on amd64 the slot count still worked out by
+       * accident, but a coro's first entry ran with StackBase/StackLimit zeroed,
+       * and on i386 the return-address slot picked up StackLimit instead. */
+      *--ctx->sp = 0;                    /* ExceptionList */
+      *--ctx->sp = (char *)sptr + ssize; /* StackBase */
+      *--ctx->sp = sptr;                 /* StackLimit */
+    #endif
   #elif __aarch64__
     ctx->sp[11] = (void *)coro_init; /* x30 / lr, restored by coro_transfer's ret */
   #elif CORO_ARM
