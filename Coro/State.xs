@@ -1,5 +1,14 @@
-/* this works around a bug in mingw32 providing a non-working setjmp */
-#define USE_NO_MINGW_SETJMP_TWO_ARGS
+/* this works around a bug in mingw32 providing a non-working setjmp.
+ * it only gates <intrin.h>, which then declares the 1-argument _setjmp,
+ * while mingw-w64/UCRT <setjmp.h> always declares the 2-argument form -
+ * defining it there makes the two declarations conflict.  _UCRT is not a
+ * compiler predefine, so <_mingw.h> is pulled in just to test for it. */
+#ifdef __MINGW32__
+# include <_mingw.h>
+# ifndef _UCRT
+#  define USE_NO_MINGW_SETJMP_TWO_ARGS
+# endif
+#endif
 
 #define NDEBUG 1 /* perl usually disables NDEBUG later */
 
