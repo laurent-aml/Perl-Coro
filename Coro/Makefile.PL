@@ -52,8 +52,27 @@ if (exists $ENV{CORO_INTERFACE}) {
    $iface = $ENV{CORO_INTERFACE};
 
 } elsif ($^O =~ /mswin32/i) {
-   # nothing works, really, without deep hacks
-   $iface = "f";
+   # Prefer the handcoded assembler where we have one for the machine and a
+   # compiler that will take it.  It is faster and leaner than fibers, and it is
+   # the only backend whose saved context can be picked up by a *different*
+   # thread, which is what Coro::Multicore's release/acquire needs - a fiber may
+   # only be switched to by the thread that last ran it.
+   #
+   # Assembler exists for x86 and x86_64.  Not for 32-bit ARM: coro.c has a path
+   # but upstream marks it untested and coro.h's autodetection leaves it out.  The
+   # arm64 Windows path does exist now, but has never been exercised and wants a
+   # mingw arm64 toolchain that is not shipping yet, so it is not a default - pick
+   # it deliberately with CORO_INTERFACE=a when there is one to try.
+   #
+   # The compiler must accept GNU-style inline asm, which rules out MSVC; perl's
+   # Config only sets gccversion for a gcc-ish build, so that is the test.
+   #
+   # Everything else keeps fibers, which work whatever the machine, as long as the
+   # interpreter stays on the one thread.
+   $iface = ($Config{gccversion}
+             && "$Config{archname} $Config{myarchname}"
+                =~ /\b(x86|x64|amd64|i[3456]86|x86_64)\b/i)
+            ? "a" : "f";
 
 } elsif ($^O =~ /cygwin/) {
    # cygwin true to its form, be an order of magnitutde slower,
@@ -175,10 +194,12 @@ s  If the ucontext functions are not working or you don't want
 a  Handcoded assembly. This is the fastest and most compatible method,
    with the least side effects, if it works, that is. It has been tested
    on GNU/Linux x86 and x86_64 systems and should work on all x86/x86_64
-   systems using the SVR ELF ABI (it is also reported to be working on
-   Strawberry Perl for Windows using MinGW). This is the recommended
-   method on supported platforms. When it doesn't work, use another
-   method, such as (s)etjmp/longjmp.
+   systems using the SVR ELF ABI, on arm64 (Linux and macOS), and on
+   Windows x86/x86_64 built with MinGW - where it is now the default, and
+   where it is also the only method that Coro::Multicore's release/acquire
+   can use, since a Windows fiber cannot be resumed from another thread.
+   This is the recommended method on supported platforms. When it doesn't
+   work, use another method, such as (s)etjmp/longjmp.
 
 l  GNU/Linux. Very old GNU/Linux systems (glibc-2.1 and below) need
    this hack. Since it is very linux-specific it is also quite fast and
