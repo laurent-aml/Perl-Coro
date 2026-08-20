@@ -133,7 +133,7 @@ trampoline (int sig)
     #define CORO_WIN_TIB 1
   #endif
 
-  asm (
+  __asm__ (
        "\t.text\n"
        #if __APPLE__
        "\t.p2align 2\n"
