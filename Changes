@@ -11,6 +11,35 @@ TODO: scalar context for Coro::AIO wrappers?
 TODO: State.xs could short-circuit some macros such as CORO_EXECUTE_SLF
 TODO: use frame->destroy to improve Coro::EV
 
+6.5701 Wed Sep  9 00:00:00 EDT 2026 (fork)
+	- new: cooperative preemption - cede_pending, preempt and cede_slice,
+          so a long-running thread can be asked to yield from the outside
+          instead of having to poll the scheduler itself (t/22_preempt.t).
+	- new: Coro::Atomic - critical sections that must not yield, spelled
+          atomic { }, scoped_atomic, or the :Atomic attribute.  A transfer
+          inside one croaks, so a section that must not be interleaved
+          fails loudly rather than interleaving quietly (t/23_atomic.t).
+	- CoroAPI revision 4 adds atomic_count, so an XS module can ask whether
+          the running thread is in such a section.  Coro::Multicore has to
+          ask from C, on the paths where it would otherwise hand the
+          interpreter to another thread or suspend for an offload.
+          Coro::Multicore uses it from 1.0701 onwards.
+	- the interpreter execution state is backported into an "execstate"
+          interface, offered as a capability ladder: level 1 register
+          save/load, level 2 the stack lifecycle, level 3 the pad
+          primitives, level 4 the JMPENV transfer registers.  State.xs
+          uses core's API on a perl that provides it and its own copy
+          otherwise, so the register list stops being duplicated here.
+	- Coro::EV can register itself as Coro::Multicore's wakeup-pipe
+          watcher, so that module no longer needs AnyEvent to be loaded.
+	- fix: enterleave hooks stored their (hook, arg) pair with av_push,
+          which asserts a non-NULL value, so registering a hook that takes
+          no argument aborted a DEBUGGING perl.  Those slots hold raw C
+          pointers rather than SVs and are now stored directly.
+          Coro::Multicore::scoped_enable was enough to trip it.
+	- fix: build with a C23 compiler, and with gcc in -std=c99 mode (the
+          asm keyword).
+
 6.57  Wed Jul 29 15:08:44 CEST 2020
 	- override AnyEvent condvar methods "properly", as AnyEvent
           has support for pluggable condvars since 2011. This also
