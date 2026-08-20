@@ -81,7 +81,13 @@ static coro_func coro_init_func;
 static void *coro_init_arg;
 static coro_context *new_coro, *create_coro;
 
+/* on the win64 asm backend coro_init is reached only from
+ * coro_init_trampoline's asm, so keep it from being discarded. */
+#if CORO_ASM && __x86_64__ && (_WIN32 || __CYGWIN__)
+static void __attribute__ ((used))
+#else
 static void
+#endif
 coro_init (void)
 {
   volatile coro_func func = coro_init_func;
@@ -366,6 +372,28 @@ trampoline (int sig)
        #endif
   );
 
+  #if __x86_64__ && CORO_WIN_TIB
+    /* A freshly created win64 context cannot satisfy both constraints at
+     * once.  coro_transfer's movaps restore needs sp == 8 (mod 16), but the
+     * frame between sp and the entry slot is an odd number of qwords, so
+     * ret'ing straight into coro_init would enter it 8 bytes off what the
+     * ABI guarantees a called function - every aligned SSE spill in it, or
+     * in anything it calls, then faults.  Land on this stub instead: it is
+     * entered 16-aligned, reserves the 32-byte register spill area a win64
+     * caller owes its callee, and reaches coro_init through a real call,
+     * whose pushed return address contributes the missing 8 bytes. */
+    void coro_init_trampoline (void);
+
+    __asm__ (
+       "\t.text\n"
+       "\t.globl coro_init_trampoline\n"
+       "coro_init_trampoline:\n"
+       "\tsubq $32, %rsp\n"      /* register spill area owed to the callee */
+       "\tcall coro_init\n"      /* the call supplies the missing 8 bytes  */
+       "\tud2\n"                 /* coro_init never returns                */
+    );
+  #endif
+
 # endif
 
 void
@@ -489,7 +517,13 @@ coro_create (coro_context *ctx, coro_func coro, void *arg, void *sptr, size_t ss
 
 # elif CORO_ASM
 
-  #if __i386__ || __x86_64__
+  #if __x86_64__ && CORO_WIN_TIB
+    /* One qword, from a 16-aligned top: that leaves ctx->sp at 8 (mod 16),
+     * the parity coro_transfer's movaps restore needs, and puts the entry
+     * slot 256 bytes above it, exactly where coro_transfer looks for it. */
+    ctx->sp = (void **)((size_t)(ssize + (char *)sptr) & ~(size_t)15);
+    *--ctx->sp = (void *)coro_init_trampoline;
+  #elif __i386__ || __x86_64__
     ctx->sp = (void **)(ssize + (char *)sptr);
     *--ctx->sp = (void *)abort; /* needed for alignment only */
     *--ctx->sp = (void *)coro_init;
