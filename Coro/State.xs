@@ -2914,8 +2914,20 @@ enterleave_hook_xs (pTHX_ struct coro *coro, AV **avp, coro_enterleave_hook hook
       AvREAL_off (*avp);
     }
 
-  av_push (*avp, (SV *)hook);
-  av_push (*avp, (SV *)arg);
+  /* These slots hold raw C pointers, not SVs - the AV has AvREAL off precisely so
+   * that it can be used as a pointer array - and a hook that wants no argument
+   * passes NULL, which is ordinary.  av_push asserts a non-NULL value, so store
+   * the pair directly: on a DEBUGGING perl that assertion aborts the interpreter
+   * for any consumer registering a hook with a NULL arg, and
+   * Coro::Multicore::scoped_enable is one such. */
+  {
+    SSize_t fill = AvFILLp (*avp);
+
+    av_extend (*avp, fill + 2);
+    AvARRAY (*avp)[fill + 1] = (SV *)hook;
+    AvARRAY (*avp)[fill + 2] = (SV *)arg;
+    AvFILLp (*avp) = fill + 2;
+  }
 }
 
 static void
