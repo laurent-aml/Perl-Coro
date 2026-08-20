@@ -11,6 +11,51 @@ TODO: scalar context for Coro::AIO wrappers?
 TODO: State.xs could short-circuit some macros such as CORO_EXECUTE_SLF
 TODO: use frame->destroy to improve Coro::EV
 
+6.58-dev  (forked, unreleased)
+	- new: cooperative preemption - cede_pending, preempt and cede_slice,
+          so a long-running thread can be asked to yield from the outside
+          instead of having to poll the scheduler itself (t/22_preempt.t).
+	- new: Coro::Atomic - critical sections that must not yield, spelled
+          atomic { }, scoped_atomic, or the :Atomic attribute.  A transfer
+          inside one croaks, so a section that must not be interleaved
+          fails loudly rather than interleaving quietly (t/23_atomic.t).
+	- CoroAPI revision 4 adds atomic_count, so an XS module can ask whether
+          the running thread is in such a section.  Coro::Multicore has to
+          ask from C, on the paths where it would otherwise hand the
+          interpreter to another thread or suspend for an offload.
+	- the interpreter execution state is backported into an "execstate"
+          interface, offered as a capability ladder: level 1 register
+          save/load, level 2 the stack lifecycle, level 3 the pad
+          primitives, level 4 the JMPENV transfer registers.  State.xs
+          uses core's API on a perl that provides it and its own copy
+          otherwise, so the register list stops being duplicated here.
+	- Coro::EV can register itself as Coro::Multicore's wakeup-pipe
+          watcher, so that module no longer needs AnyEvent to be loaded.
+	- fix: enterleave hooks stored their (hook, arg) pair with av_push,
+          which asserts a non-NULL value, so registering a hook that takes
+          no argument aborted a DEBUGGING perl.  Those slots hold raw C
+          pointers rather than SVs and are now stored directly.
+          Coro::Multicore::scoped_enable was enough to trip it.
+	- fix: build with a C23 compiler, and with gcc in -std=c99 mode (the
+          asm keyword).
+	- on Windows, the default backend is now the assembler one where the machine
+          has assembler (x86, x86_64) and the compiler takes GNU-style inline asm
+          (i.e. MinGW, not MSVC); everything else keeps fibers.  Besides being
+          faster and leaner, it is the only backend whose parked context another
+          thread may resume, which is what Coro::Multicore's release/acquire
+          needs.  32-bit ARM is excluded (its assembler is untested upstream and
+          left out of coro.h's autodetection) and so is arm64-on-Windows for now
+          (the path exists but has never been exercised, and wants a mingw arm64
+          toolchain) - both selectable with CORO_INTERFACE=a.
+	- CORO_ASM now builds and runs on Windows, where it previously did
+          neither: on amd64 the path did not compile, read the TIB through
+          the 32-bit segment register, saved the TIB triple before the
+          frame was reserved, and decorated coro_transfer as if it were a
+          32-bit build; on x86 the saved registers were in the wrong
+          order; the backend autodetection had unbalanced parens; setjmp's
+          signature differs on recent mingw; the x86_64 stack needed
+          realigning; and aarch64 had no Windows path at all.
+
 6.57  Wed Jul 29 15:08:44 CEST 2020
 	- override AnyEvent condvar methods "properly", as AnyEvent
           has support for pluggable condvars since 2011. This also
