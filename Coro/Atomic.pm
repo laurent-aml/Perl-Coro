@@ -67,8 +67,12 @@ safe to call such a function inside an atomic section - the section keeps its
 meaning and the call keeps working.
 
 This requires Coro::Multicore to be built against this version of C<CoroAPI.h>
-(API revision 4 or later, which publishes the atomic depth); an older build
-loaded against this Coro refuses to load with a version-mismatch message.
+(API revision 4 or later, which publishes the atomic depth).  One built against
+an older header still loads and works, but without this protection: a
+multicore-enabled XS call inside an atomic section will then break the section,
+which for the release backend surfaces as an exception rather than as silently
+lost atomicity.  C<Coro::Multicore::has_atomic_support> reports which build you
+have.
 
 The three forms are equivalent; pick whichever reads best:
 
