@@ -22,10 +22,32 @@ my $extra = $Config{sitearch};
 $extra =~ s/$Config{prefix}/$opt{PREFIX}/ if
     exists $opt{PREFIX};
 
-for my $d ($extra, @INC) {
-   if (-e "$d/Coro/CoroAPI.h") {
-      $installsitearch = $d;
-      last;
+# The header an extension compiles against has to come from the Coro that perl
+# will load, and that is the one whose Coro.pm comes first along @INC.  Nothing
+# later in the path is relevant, even if it looks more complete.
+for my $d (@INC) {
+   next if ref $d;                     # an @INC hook supplies no headers
+   next unless -e "$d/Coro.pm";
+
+   # This is the Coro that will load, so its header is the only right one.
+   # Taking a different Coro's is what produces a module that cannot load.
+   -e "$d/Coro/CoroAPI.h"
+      or die "Coro.pm found in $d, but $d/Coro/CoroAPI.h is missing -\n"
+           . "that installation is incomplete and cannot be built against.\n";
+
+   $installsitearch = $d;
+   last;
+}
+
+# No Coro.pm anywhere along @INC: an install into a PREFIX that is not in @INC
+# yet, which is what $extra is for.  The original search, unchanged.
+unless (defined $installsitearch) {
+   for my $d ($extra, @INC) {
+      next if ref $d;
+      if (-e "$d/Coro/CoroAPI.h") {
+         $installsitearch = $d;
+         last;
+      }
    }
 }
 

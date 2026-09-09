@@ -24,6 +24,7 @@ TODO: use frame->destroy to improve Coro::EV
           ask from C, on the paths where it would otherwise hand the
           interpreter to another thread or suspend for an offload.
           Coro::Multicore uses it from 1.0701 onwards.
+	- Build: fix detection of CoroAPI.h corresponding to loaded Coro.pm.
 	- the interpreter execution state is backported into an "execstate"
           interface, offered as a capability ladder: level 1 register
           save/load, level 2 the stack lifecycle, level 3 the pad
