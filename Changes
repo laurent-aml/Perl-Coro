@@ -11,6 +11,18 @@ TODO: scalar context for Coro::AIO wrappers?
 TODO: State.xs could short-circuit some macros such as CORO_EXECUTE_SLF
 TODO: use frame->destroy to improve Coro::EV
 
+6.5702 Thu Oct  2 00:00:00 EDT 2026 (fork)
+	- on Windows, the assembler backend is now the default where the machine
+          has one (x86, x86_64) and the compiler takes GNU-style inline asm,
+          i.e. MinGW, not MSVC; everything else keeps fibers.  Besides being
+          faster and leaner, it is the only backend supporting Coro::Multicore's
+          release/acquire needs.
+          32-bit ARM and arm64-on-Windows (untested) stay off, but are selectable
+          with CORO_INTERFACE=a.
+	- CORO_ASM now builds and runs on Windows for x86_64 and x86_32.
+          aarch64 supports has been added as well, but is untested at the moment,
+          waiting for a Strawberry Perl aarch64 release.
+
 6.5701 Wed Sep  9 00:00:00 EDT 2026 (fork)
 	- new: cooperative preemption - cede_pending, preempt and cede_slice,
           so a long-running thread can be asked to yield from the outside
