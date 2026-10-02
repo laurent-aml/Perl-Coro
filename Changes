@@ -12,6 +12,9 @@ TODO: State.xs could short-circuit some macros such as CORO_EXECUTE_SLF
 TODO: use frame->destroy to improve Coro::EV
 
 6.5702 Thu Oct  2 00:00:00 EDT 2026 (fork)
+	- fix a segfault when safe_cancel cancels a thread blocked inside an SLF
+          call that armed an on_destroy callback.
+          Triggered with Coro::Semaphore/Coro::Channel.
 	- on Windows, the assembler backend is now the default where the machine
           has one (x86, x86_64) and the compiler takes GNU-style inline asm,
           i.e. MinGW, not MSVC; everything else keeps fibers.  Besides being
