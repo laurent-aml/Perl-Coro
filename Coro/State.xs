@@ -2713,6 +2713,12 @@ slf_destroy (pTHX_ struct coro *coro)
    * cleanup functions cannot call SLF functions.
    */
   coro->slf_frame.prepare = 0;
+  /* ... and the destroy callback with it, so that a second slf_destroy for this
+   * coro cannot run it again.  Clearing prepare alone does not stop that: the
+   * safe_cancel path calls us and then re-arms prepare itself, leaving destroy
+   * and data as they were, so the coro's eventual destruction calls destroy a
+   * second time - with data the first call already let go of. */
+  coro->slf_frame.destroy = 0;
 
   /* this callback is reserved for slf functions needing to do cleanup */
   if (frame.destroy && frame.prepare && !PL_dirty)

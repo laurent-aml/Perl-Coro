@@ -71,6 +71,7 @@ t/20_mutual_cancel.t
 t/21_safe_cancel.t
 t/22_preempt.t
 t/23_atomic.t
+t/24_cancel_slf_destroy.t
 
 EV/Makefile.PL
 EV/EV.pm
