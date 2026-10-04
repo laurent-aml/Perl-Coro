@@ -48,6 +48,14 @@ TODO: use frame->destroy to improve Coro::EV
           otherwise, so the register list stops being duplicated here.
 	- Coro::EV can register itself as Coro::Multicore's wakeup-pipe
           watcher, so that module no longer needs AnyEvent to be loaded.
+	- fix: safe_cancel corrupted the stack when unwinding a thread that
+          had used "local".  The scope stack was left before the context stack
+          was unwound, so inner-frame save-stack entries - a localised hash
+          element, a SAVEt_CLEARSV - were processed while the pad was still at
+          the innermost frame's depth, leaving an outer frame's pad slot stale.
+          That wrecks refcounts and asserts or segfaults inside
+          Perl_leave_scope on perls carrying the 5.24 save-stack handling.
+          Seen with ->safe_cancel of a thread blocked in a condvar.
 	- fix: enterleave hooks stored their (hook, arg) pair with av_push,
           which asserts a non-NULL value, so registering a hook that takes
           no argument aborted a DEBUGGING perl.  Those slots hold raw C
