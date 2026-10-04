@@ -59,14 +59,17 @@ EOF
    print "\n*** EV not found, not building EV support.\n\n";
 }
 
-WriteMakefile(
+my %args = (
     dist         => {
-       PREOP	=> 'pod2text Coro.pm | tee README >$(DISTVNAME)/README; chmod -R u=rwX,go=rX . ;',
+       PREOP	=> 'pod2text Alt/Coro/GT.pm | tee README >$(DISTVNAME)/README; chmod -R u=rwX,go=rX . ;',
        COMPRESS	=> 'gzip -9v',
        SUFFIX	=> '.gz',
 	            },
-    NAME         => "Coro",
-    VERSION_FROM => "Coro.pm",
+    NAME         => "Alt::Coro::GT",
+    VERSION_FROM => "Alt/Coro/GT.pm",
+    ABSTRACT_FROM=> "Alt/Coro/GT.pm",
+    AUTHOR       => 'Laurent Aml <laurent.aml@gmail.com>',
+    LICENSE      => "perl",
     DIR          => ['Coro', ($EVENT ? 'Event' : ()), ($EV ? "EV" : ())],
     PREREQ_PM    => {
        common::sense    => 0,
@@ -95,6 +98,14 @@ WriteMakefile(
     # to build properly without its dependencies installed
     # needs his brain rearranged dramatically.
     META_MERGE => {
+        # An Alt distribution ships the real Coro modules, but must not be
+        # indexed under their names - Alt::Coro::GT is the only package this
+        # distribution claims. Without this, PAUSE reports every one of the
+        # others as a permission failure on each upload.
+        no_index => {
+           directory => [qw(Coro EV Event doc eg)],   # EUMM adds t and inc
+           file      => [qw(Coro.pm)],
+        },
         recommends => {
            Event         => 1.08,
            EV            => 4.0,
@@ -106,6 +117,8 @@ WriteMakefile(
         }
     },
     PM           => {
+		    'Alt/Coro/GT.pm'	=> '$(INST_LIB)/Alt/Coro/GT.pm',
+
 		    'Coro.pm'		=> '$(INST_LIB)/Coro.pm',
 
 		    'Coro/State.pm'	=> '$(INST_LIB)/Coro/State.pm',
@@ -141,12 +154,21 @@ WriteMakefile(
                     },
 );
 
+# An Alt distribution replaces a module the user already has, so it must not
+# install unless they say so. PERL_ALT_INSTALL=OVERWRITE installs over the Coro
+# in @INC; any other value is taken as a DESTDIR to stage into; unset stages
+# into a junk directory, so building and testing stay harmless.
+my $alt = $ENV{PERL_ALT_INSTALL} || '';
+$args{DESTDIR} = $alt ? $alt eq 'OVERWRITE' ? '' : $alt : 'no-install-alt';
+
+WriteMakefile (%args);
+
 sub MY::postamble {
    <<EOF;
 
 # set \$VERSION in all modules
 setver:
-	\$(PERL) -pi -e 's/^(\\s*(our\\s*)?\\\$\$VERSION\\s*=\\s*).*\$\$/\$\${1}\$(VERSION);/' *.pm Coro/*.pm EV/*.pm Event/*.pm
+	\$(PERL) -pi -e 's/^(\\s*(our\\s*)?\\\$\$VERSION\\s*=\\s*).*\$\$/\$\${1}\$(VERSION);/' *.pm Alt/Coro/*.pm Coro/*.pm EV/*.pm Event/*.pm
 
 EOF
 }

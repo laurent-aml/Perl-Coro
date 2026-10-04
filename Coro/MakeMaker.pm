@@ -2,6 +2,8 @@ package Coro::MakeMaker;
 
 use common::sense;
 
+use Alt::Coro::GT ();  # so %INC shows which Coro this is
+
 use Config;
 use base 'Exporter';
 

@@ -1,23 +1,30 @@
 ---
-abstract: unknown
+abstract: 'Coro for green threads, on top of the execstate interface'
 author:
-  - unknown
+  - 'Laurent Aml <laurent.aml@gmail.com>'
 build_requires:
   ExtUtils::MakeMaker: '0'
 configure_requires:
   Canary::Stability: '0'
   ExtUtils::MakeMaker: '6.52'
 dynamic_config: 1
-generated_by: 'ExtUtils::MakeMaker version 7.34, CPAN::Meta::Converter version 2.150001'
-license: unknown
+generated_by: 'ExtUtils::MakeMaker version 7.70, CPAN::Meta::Converter version 2.150010'
+license: perl
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
   version: '1.4'
-name: Coro
+name: Alt-Coro-GT
 no_index:
   directory:
     - t
     - inc
+    - Coro
+    - EV
+    - Event
+    - doc
+    - eg
+  file:
+    - Coro.pm
 recommends:
   AnyEvent: '7'
   AnyEvent::AIO: '1'
@@ -32,4 +39,5 @@ requires:
   Scalar::Util: '0'
   Storable: '2.15'
   common::sense: '0'
-version: 6.5701
+version: 6.5702
+x_serialization_backend: 'CPAN::Meta::YAML version 0.018'

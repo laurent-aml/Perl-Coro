@@ -356,6 +356,8 @@ package Coro;
 
 use common::sense;
 
+use Alt::Coro::GT ();  # so %INC shows which Coro this is
+
 use Carp ();
 
 use Guard ();

@@ -11,6 +11,14 @@ TODO: scalar context for Coro::AIO wrappers?
 TODO: State.xs could short-circuit some macros such as CORO_EXECUTE_SLF
 TODO: use frame->destroy to improve Coro::EV
 
+6.5702-alt (branch alt_gt)
+	- repackaged as Alt::Coro::GT, an Alt distribution: same modules and
+          same versions, but the distribution is named Alt-Coro-GT, only
+          Alt::Coro::GT is indexed (no_index covers Coro and Coro::*), and
+          it will not install unless PERL_ALT_INSTALL says so.
+          See Alt/Coro/GT.pm for what it changes against upstream Coro, and
+          for the two places it deliberately departs from the Alt guidelines.
+
 6.5702 Thu Oct  2 00:00:00 EDT 2026 (fork)
 	- fix a segfault when an XSUB taking a Coro::State is handed a hash
           that is not a coro.  The probe checked the SV was a hash and then

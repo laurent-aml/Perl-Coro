@@ -1,22 +1,30 @@
 {
-   "abstract" : "unknown",
+   "abstract" : "Coro for green threads, on top of the execstate interface",
    "author" : [
-      "unknown"
+      "Laurent Aml <laurent.aml@gmail.com>"
    ],
    "dynamic_config" : 1,
-   "generated_by" : "ExtUtils::MakeMaker version 7.34, CPAN::Meta::Converter version 2.150001",
+   "generated_by" : "ExtUtils::MakeMaker version 7.70, CPAN::Meta::Converter version 2.150010",
    "license" : [
-      "unknown"
+      "perl_5"
    ],
    "meta-spec" : {
       "url" : "http://search.cpan.org/perldoc?CPAN::Meta::Spec",
-      "version" : "2"
+      "version" : 2
    },
-   "name" : "Coro",
+   "name" : "Alt-Coro-GT",
    "no_index" : {
       "directory" : [
          "t",
-         "inc"
+         "inc",
+         "Coro",
+         "EV",
+         "Event",
+         "doc",
+         "eg"
+      ],
+      "file" : [
+         "Coro.pm"
       ]
    },
    "prereqs" : {
@@ -51,5 +59,6 @@
       }
    },
    "release_status" : "stable",
-   "version" : 6.5701
+   "version" : 6.5702,
+   "x_serialization_backend" : "JSON::PP version 4.16"
 }
