@@ -1,6 +1,6 @@
 =head1 NAME
 
-Coro - the only real threads in perl
+Coro - the only stackful threads in perl
 
 =head1 SYNOPSIS
 
@@ -319,7 +319,7 @@ object still is there and stores the return values of the thread.
 When there are no other references, it will simply be cleaned up and
 freed.
 
-If there areany references, the Coro object will stay around, and you
+If there are any references, the Coro object will stay around, and you
 can call C<< ->join >> as many times as you wish to retrieve the result
 values:
 
@@ -1328,14 +1328,7 @@ works.
 
 =head1 ITHREAD, WINDOWS PROCESS EMULATION
 
-A great many people seem to be confused about ithreads (for example, Chip
-Salzenberg called me unintelligent, incapable, stupid and gullible,
-while in the same mail making rather confused statements about perl
-ithreads (for example, that memory or files would be shared), showing his
-lack of understanding of this area - if it is hard to understand for Chip,
-it is probably not obvious to everybody).
-
-What follows is an ultra-condensed version of my talk about threads in
+What follows is an ultra-condensed version of Marc's talk about threads in
 scripting languages given on the perl workshop 2009:
 
 The so-called "ithreads" were originally implemented for two reasons:
@@ -1368,7 +1361,7 @@ actually take advantage of custom hardware for this purpose (as evidenced
 by the forks module, which gives you the (i)threads API, just much
 faster).
 
-Sharing data is in the ithreads model is done by transferring data
+Sharing data in the ithreads model is done by transferring data
 structures between threads using copying semantics, which is very slow -
 shared data simply does not exist. Benchmarks using ithreads which are
 communication-intensive show extremely bad behaviour with ithreads (in
