@@ -1326,7 +1326,7 @@ works.
 =back
 
 
-=head1 ITHREAD, WINDOWS PROCESS EMULATION
+=head1 ITHREADS: WINDOWS PROCESS EMULATION
 
 What follows is an ultra-condensed version of Marc's talk about threads in
 scripting languages given on the perl workshop 2009:
@@ -1380,6 +1380,122 @@ misleading as it implies that it implements some kind of thread model for
 perl, and prefer the name "windows process emulation", which describes the
 actual use and behaviour of it much better.
 
+=head1 MULTI-CORES PERFORMANCE
+
+First, note that multicores performance, i.e. running multiple code paths
+in parallel on physical CPU cores, is not a specific property of threads
+and is routinely achieved using just processes.
+
+Coro threads are running concurrently, but not in parallel on multiple
+cores. Running multiple pure Perl code instructions in parallel only work
+with distinct Perl interpreters (each in a process, emulated or real).
+See solutions like L<AnyEvent::Fork> if you need parallel Perls. There are
+many other options available in CPAN as well.
+
+However, Coro along with L<Coro::Multicore> allows Pure Perl code (and
+therefore Coros) to run in parallel with one or more XS calls, each in its
+own OS threads. This allows to implement the "Perl orchestrates, XS executes"
+pattern which effectively brings multicore performance to Perl.
+Not all CPAN XS modules are multicore-enabled, though.
+
+Note that on Windows, Perl must be compiled without ithreads to support
+Coro::Multicore.
+
+For completeness, XS modules can also implement their own internal OS
+threading (eg. L<PDL>). Without Coro::Multicore, however, such XS
+calls will block the Perl interpreter and will not run in parallel with
+other XS calls.
+
+=head1 THREADS ALTERNATIVES
+
+Ithreads have already been discarded as not real threads, so they will not
+be discussed here.
+
+Coro is the only stackful thread implementation in Perl. However, Perl also
+has a stackless one: L<Future::AsyncAwait> (FAA).
+Stackful threads switch the whole Perl+C stack, while stackless threads
+transform a subroutine into a resumable state machine, allowing it to be
+intertwined with other subroutines.
+Both rely on an event loop and are known as "green threads".
+
+The differences are the following.
+
+=over 4
+
+=item explicit stackful vs hidden stackless
+
+Stackful threads are usually what people are used to, as pthreads are
+within this family.
+They are created (C<async>) and started explicitly.
+They are scheduled, have a ready queue, priorities and explicit scheduling
+features (yield, suspend, resume, time slicing).
+
+Stackless threads are tied to asynchronous programming patterns, L<Future>
+in this case. FAA is advertised as a "deferred subroutine syntax", and
+never references itself as a thread implementation.
+FAA is I<coloring> the call graph. Subs must be marked C<async sub>, and
+suspension points must C<await> the async subs. The threads are actually
+implicitly created when C<await> can't return immediately.
+Stackless threads don't have a scheduler and only rely on their event loop.
+
+=item visible suspension points
+
+Coloring has an associated cost, but buys visibility.
+Thread switching only happens in C<await>, which itself is only allowed in
+C<async sub>. A sub which is not C<async> will never yield.
+C<DESTROY> and C<defer> are guaranteed synchronous.
+
+Coro is colorless, so any sub call may cede somewhere inside with nothing to
+say so. Especially with L<Coro::Multicore>, an XS module may cede without
+any visibility in the Perl code.
+However, L<Coro::Atomic> can be used to define critical sections where
+L<Coro::Multicore> runs XS synchronously and where any Perl-level yielding
+would throw a fatal error - at run time, not at compile time as coloring does.
+
+=item call stack and caller context
+
+Stackful threads have a call stack and a caller context.
+
+Stackless threads, as the name says, do not have a stack, which means that
+they lose their caller context as soon as Perl switches to another thread. More
+concretely, C<die> can no longer report its call stack (or at least,
+not the one you'd expect, as the caller will not appear there). And C<wantarray>
+can't work.
+The lack of context has several limitations on dynamic and automatic variables
+as described in L<Future::AsyncAwait>. The sharpest is that C<local> does not
+compose with C<await>: its effect would stay in force for whatever else runs
+during the suspension, which is why the await-aware C<dynamically> keyword
+(L<Syntax::Keyword::Dynamically>) has to replace it.
+
+=item cancellation
+
+Cancelling a stackful thread unwinds a real, live dynamic scope. C<safe_cancel>
+unwinds the thread in its own context at a cancellable point, so its C<local>
+restorations, C<DESTROY>s and guard blocks run in the correct order, and may
+themselves block (e.g. for DB clean up).
+
+Stackless threads have no such stack to unwind. Synchronous cleanup still runs,
+but it cannot C<await>, so asynchronous cleanup on cancellation does not exist
+today.
+
+=item implementation and portability
+
+Stackful threads require C-stack machinery, more complex to implement, and may
+have limitations on unusual platforms.
+Swapping a whole stack is O(1) in the amount of live state, but each stackful
+thread reserves a C stack.
+
+Stackless threads need no per-thread C stack, and so have no platform-specific
+backend. They freeze only the save-stack region they suspend through: O(n) in
+depth, but a much smaller per-thread footprint.
+
+=item support in Perl
+
+At the moment, both suffer from a lack of support in Perl itself, which does
+not provide public APIs to manage green threads.
+
+=back
+
 =head1 SEE ALSO
 
 Event-Loop integration: L<Coro::AnyEvent>, L<Coro::EV>, L<Coro::Event>.
@@ -1400,6 +1516,8 @@ L<Coro::Select>.
 XS API: L<Coro::MakeMaker>.
 
 Low level Configuration, Thread Environment, Continuations: L<Coro::State>.
+
+Multicore: L<Coro::Multicore> and L<Proc::FastSpawn> for safe spawning of processes.
 
 =head1 AUTHOR/SUPPORT/CONTACT
 
