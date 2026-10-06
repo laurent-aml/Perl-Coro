@@ -572,7 +572,10 @@ coro_times_sub (struct coro *c)
     : 0)
 
 #define CORO_MAGIC_cv(cv)    CORO_MAGIC    (((SV *)(cv)), CORO_MAGIC_type_cv)
-#define CORO_MAGIC_state(sv) CORO_MAGIC_NN (((SV *)(sv)), CORO_MAGIC_type_state)
+/* Checked, like _cv: this one probes whatever an XSUB was handed, which may be
+ * any hash at all, including one with no magic.  Paths that already know they
+ * hold a coro use CORO_MAGIC_NN directly and say so. */
+#define CORO_MAGIC_state(sv) CORO_MAGIC    (((SV *)(sv)), CORO_MAGIC_type_state)
 
 ecb_inline MAGIC *
 SvSTATEhv_p (pTHX_ SV *coro)

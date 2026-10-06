@@ -12,6 +12,12 @@ TODO: State.xs could short-circuit some macros such as CORO_EXECUTE_SLF
 TODO: use frame->destroy to improve Coro::EV
 
 6.5702 Thu Oct  2 00:00:00 EDT 2026 (fork)
+	- fix a segfault when an XSUB taking a Coro::State is handed a hash
+          that is not a coro.  The probe checked the SV was a hash and then
+          read its magic unguarded, so any hash with none - a blessed object
+          standing in for a coro in a test, or a bare {} - dereferenced NULL
+          before the "Coro::State object required" croak could happen.  Every
+          XSUB with a Coro::State parameter shared the path (t/25_state_arg.t).
 	- fix a segfault when safe_cancel cancels a thread blocked inside an SLF
           call that armed an on_destroy callback.
           Triggered with Coro::Semaphore/Coro::Channel.

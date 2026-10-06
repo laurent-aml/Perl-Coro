@@ -72,6 +72,7 @@ t/21_safe_cancel.t
 t/22_preempt.t
 t/23_atomic.t
 t/24_cancel_slf_destroy.t
+t/25_state_arg.t
 
 EV/Makefile.PL
 EV/EV.pm
